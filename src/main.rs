@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod app;
 mod config;
 mod fuzzy;
@@ -6,6 +8,8 @@ mod theme;
 use config::Config;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::GlobalHotKeyManager;
+use tray_icon::menu::{Menu, MenuItem};
+use tray_icon::{Icon, TrayIconBuilder};
 
 fn parse_modifier(s: &str) -> Modifiers {
     match s.to_lowercase().as_str() {
@@ -81,6 +85,22 @@ fn main() -> iced::Result {
         .expect("Failed to register hotkey");
     let _hotkey_manager = hotkey_manager; // keep alive
 
+    // --- Tray icon setup ---
+    // Create a 16x16 solid icon (highlight color from config, or a default blue)
+    let icon = create_tray_icon_image(&config);
+    let tray_menu = Menu::new();
+    let exit_item = MenuItem::new("Exit", true, None);
+    tray_menu.append(&exit_item).unwrap();
+
+    let _tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(tray_menu))
+        .with_tooltip("Terminal Switcher")
+        .with_icon(icon)
+        .with_menu_on_left_click(false)
+        .build()
+        .expect("Failed to create tray icon");
+    // _tray_icon must stay alive for the icon to remain visible
+
     iced::application(
         move || app::App::new(config.clone(), first_run),
         app::App::update,
@@ -90,4 +110,31 @@ fn main() -> iced::Result {
     .window(app::App::window_settings())
     .subscription(app::App::subscription)
     .run()
+}
+
+/// Create a simple 16x16 solid-color RGBA icon for the system tray.
+fn create_tray_icon_image(config: &Config) -> Icon {
+    let (r, g, b) = parse_hex_rgb(&config.settings.highlight).unwrap_or((0x89, 0xb4, 0xfa));
+    let width = 16u32;
+    let height = 16u32;
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for _ in 0..(width * height) {
+        rgba.push(r);
+        rgba.push(g);
+        rgba.push(b);
+        rgba.push(255);
+    }
+    Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon image")
+}
+
+/// Parse "#rrggbb" into (r, g, b).
+fn parse_hex_rgb(hex: &str) -> Option<(u8, u8, u8)> {
+    let hex = hex.strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some((r, g, b))
 }

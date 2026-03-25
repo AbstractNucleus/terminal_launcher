@@ -3,6 +3,8 @@ use iced::widget::{button, column, container, radio, row, scrollable, text, text
 use iced::window;
 use iced::{Element, Size, Subscription, Task};
 
+use tray_icon::menu::MenuEvent;
+
 use crate::config::Config;
 use crate::theme::AppColors;
 
@@ -57,6 +59,7 @@ pub enum Message {
     EditorConfirmDelete,
     EditorCancel,
     WindowFocusLost,
+    Exit,
 }
 
 impl App {
@@ -287,6 +290,9 @@ impl App {
                 } else {
                     Task::none()
                 }
+            }
+            Message::Exit => {
+                std::process::exit(0);
             }
         }
     }
@@ -531,7 +537,9 @@ impl App {
             _ => None,
         });
 
-        Subscription::batch([keyboard_sub, hotkey_sub, focus_sub])
+        let hide_taskbar_sub = Subscription::run(hide_from_taskbar);
+
+        Subscription::batch([keyboard_sub, hotkey_sub, focus_sub, hide_taskbar_sub])
     }
 
     pub fn window_settings() -> window::Settings {
@@ -582,12 +590,56 @@ impl App {
 fn hotkey_listener() -> impl iced::futures::Stream<Item = Message> {
     iced::stream::channel(10, async |mut sender| {
         use iced::futures::SinkExt;
-        let receiver = global_hotkey::GlobalHotKeyEvent::receiver();
+        let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
+        let menu_receiver = MenuEvent::receiver();
         loop {
-            if let Ok(_event) = receiver.try_recv() {
+            if let Ok(_event) = hotkey_receiver.try_recv() {
                 let _ = sender.send(Message::ToggleVisibility).await;
             }
+            // Any tray menu event means "Exit" (we only have one menu item)
+            if let Ok(_event) = menu_receiver.try_recv() {
+                let _ = sender.send(Message::Exit).await;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+}
+
+/// One-shot subscription that hides the window from the Windows taskbar
+/// by setting the WS_EX_TOOLWINDOW extended style on the HWND.
+fn hide_from_taskbar() -> impl iced::futures::Stream<Item = Message> {
+    iced::stream::channel(1, async |_sender| {
+        // Give the window a moment to be created
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            // Perform all HWND operations in a block so the non-Send HWND
+            // doesn't live across an await point.
+            let needs_show = unsafe {
+                if let Ok(hwnd) = FindWindowW(None, windows::core::w!("Terminal Switcher")) {
+                    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                    SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_TOOLWINDOW.0 as i32);
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    true
+                } else {
+                    false
+                }
+            };
+            if needs_show {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                unsafe {
+                    if let Ok(hwnd) = FindWindowW(None, windows::core::w!("Terminal Switcher")) {
+                        let _ = ShowWindow(hwnd, SW_SHOW);
+                    }
+                }
+            }
+        }
+
+        // Keep the subscription alive (it won't send any messages, just park)
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     })
 }
