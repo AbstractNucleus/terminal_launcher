@@ -1,6 +1,7 @@
+use iced::keyboard::Event as KeyEvent;
 use iced::widget::{column, container, text, text_input};
 use iced::window;
-use iced::{Element, Size, Task};
+use iced::{Element, Size, Subscription, Task};
 
 use crate::config::Config;
 use crate::theme::AppColors;
@@ -24,6 +25,7 @@ pub enum Message {
     Launch,
     Hide,
     ToggleEditor,
+    Noop,
 }
 
 impl App {
@@ -74,8 +76,26 @@ impl App {
                 Task::none()
             }
             Message::Launch => Task::none(),
-            Message::Hide => Task::none(),
+            Message::Hide => {
+                self.search_query.clear();
+                self.selected_index = 0;
+                let names: Vec<String> = self
+                    .config
+                    .entry
+                    .iter()
+                    .map(|e| format!("{} {}", e.name(), e.display_detail()))
+                    .collect();
+                self.filtered_indices = self.fuzzy_matcher.filter("", &names);
+                self.visible = false;
+                window::latest().and_then(|id| {
+                    Task::batch([
+                        window::set_level(id, window::Level::Normal),
+                        window::minimize(id, true),
+                    ])
+                })
+            }
             Message::ToggleEditor => Task::none(),
+            Message::Noop => Task::none(),
         }
     }
 
@@ -131,6 +151,31 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        iced::keyboard::listen().map(|event| match event {
+            KeyEvent::KeyPressed {
+                key,
+                modifiers,
+                ..
+            } => {
+                use iced::keyboard::Key;
+                use iced::keyboard::key::Named;
+
+                match key {
+                    Key::Named(Named::ArrowUp) => Message::MoveUp,
+                    Key::Named(Named::ArrowDown) => Message::MoveDown,
+                    Key::Named(Named::Enter) => Message::Launch,
+                    Key::Named(Named::Escape) => Message::Hide,
+                    Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
+                        Message::ToggleEditor
+                    }
+                    _ => Message::Noop,
+                }
+            }
+            _ => Message::Noop,
+        })
     }
 
     pub fn window_settings() -> window::Settings {

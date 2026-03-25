@@ -15,5 +15,6 @@ fn main() -> iced::Result {
     )
     .title("Terminal Switcher")
     .window(app::App::window_settings())
+    .subscription(app::App::subscription)
     .run()
 }
