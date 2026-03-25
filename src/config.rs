@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -75,6 +76,73 @@ impl Entry {
                 Some(p) => format!("{}:{}", host, p),
                 None => host.clone(),
             },
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            settings: Settings {
+                background: default_background(),
+                foreground: default_foreground(),
+                highlight: default_highlight(),
+                font_size: default_font_size(),
+                hotkey: HotkeyConfig::default(),
+            },
+            entry: vec![
+                Entry::Directory {
+                    name: "Example Project".to_string(),
+                    path: "~/projects".to_string(),
+                },
+                Entry::Ssh {
+                    name: "Example Server".to_string(),
+                    host: "user@example.com".to_string(),
+                    port: None,
+                },
+            ],
+        }
+    }
+}
+
+impl Config {
+    pub fn config_path() -> PathBuf {
+        let config_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("terminal-switcher");
+        config_dir.join("config.toml")
+    }
+
+    pub fn load_from(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let contents = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&contents)?;
+        Ok(config)
+    }
+
+    pub fn save_to(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let contents = toml::to_string_pretty(self)?;
+        std::fs::write(path, contents)?;
+        Ok(())
+    }
+
+    /// Load config from default path. If file doesn't exist, create default config and save it.
+    /// V1 limitation: if the config file is malformed, the entire config fails to load
+    /// and a default is created. Per-entry validation (skipping bad entries) is deferred to V2.
+    pub fn load_or_create_default() -> (Self, bool) {
+        let path = Self::config_path();
+        match Self::load_from(&path) {
+            Ok(config) => (config, false),
+            Err(e) => {
+                eprintln!("Config not found or invalid ({}), creating default", e);
+                let config = Config::default();
+                if let Err(e) = config.save_to(&path) {
+                    eprintln!("Warning: could not save default config: {}", e);
+                }
+                (config, true) // true = first run
+            }
         }
     }
 }
@@ -212,5 +280,34 @@ host = "user@host.com"
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.settings.background, "#111");
         assert_eq!(deserialized.entry.len(), 1);
+    }
+
+    #[test]
+    fn default_config_has_example_entries() {
+        let config = Config::default();
+        assert!(!config.entry.is_empty());
+        let has_dir = config.entry.iter().any(|e| matches!(e, Entry::Directory { .. }));
+        let has_ssh = config.entry.iter().any(|e| matches!(e, Entry::Ssh { .. }));
+        assert!(has_dir, "Default config should have a directory example");
+        assert!(has_ssh, "Default config should have an SSH example");
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let config = Config::default();
+        config.save_to(&path).unwrap();
+
+        let loaded = Config::load_from(&path).unwrap();
+        assert_eq!(loaded.entry.len(), config.entry.len());
+        assert_eq!(loaded.settings.background, config.settings.background);
+    }
+
+    #[test]
+    fn load_nonexistent_returns_error() {
+        let result = Config::load_from(std::path::Path::new("/nonexistent/config.toml"));
+        assert!(result.is_err());
     }
 }
