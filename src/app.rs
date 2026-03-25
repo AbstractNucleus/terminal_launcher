@@ -25,6 +25,7 @@ pub enum Message {
     Launch,
     Hide,
     ToggleEditor,
+    ToggleVisibility,
     Noop,
 }
 
@@ -75,7 +76,26 @@ impl App {
                 }
                 Task::none()
             }
-            Message::Launch => Task::none(),
+            Message::Launch => {
+                let launch_task = self.launch_selected();
+                self.search_query.clear();
+                self.selected_index = 0;
+                let names: Vec<String> = self
+                    .config
+                    .entry
+                    .iter()
+                    .map(|e| format!("{} {}", e.name(), e.display_detail()))
+                    .collect();
+                self.filtered_indices = self.fuzzy_matcher.filter("", &names);
+                self.visible = false;
+                let hide_task = window::latest().and_then(|id| {
+                    Task::batch([
+                        window::set_level(id, window::Level::Normal),
+                        window::minimize(id, true),
+                    ])
+                });
+                Task::batch([launch_task, hide_task])
+            }
             Message::Hide => {
                 self.search_query.clear();
                 self.selected_index = 0;
@@ -93,6 +113,26 @@ impl App {
                         window::minimize(id, true),
                     ])
                 })
+            }
+            Message::ToggleVisibility => {
+                if self.visible {
+                    self.visible = false;
+                    window::latest().and_then(|id| {
+                        Task::batch([
+                            window::set_level(id, window::Level::Normal),
+                            window::minimize(id, true),
+                        ])
+                    })
+                } else {
+                    self.visible = true;
+                    window::latest().and_then(|id| {
+                        Task::batch([
+                            window::minimize(id, false),
+                            window::set_level(id, window::Level::AlwaysOnTop),
+                            window::gain_focus(id),
+                        ])
+                    })
+                }
             }
             Message::ToggleEditor => Task::none(),
             Message::Noop => Task::none(),
@@ -154,14 +194,12 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::keyboard::listen().map(|event| match event {
+        let keyboard_sub = iced::keyboard::listen().map(|event| match event {
             KeyEvent::KeyPressed {
-                key,
-                modifiers,
-                ..
+                key, modifiers, ..
             } => {
-                use iced::keyboard::Key;
                 use iced::keyboard::key::Named;
+                use iced::keyboard::Key;
 
                 match key {
                     Key::Named(Named::ArrowUp) => Message::MoveUp,
@@ -175,7 +213,11 @@ impl App {
                 }
             }
             _ => Message::Noop,
-        })
+        });
+
+        let hotkey_sub = Subscription::run(hotkey_listener);
+
+        Subscription::batch([keyboard_sub, hotkey_sub])
     }
 
     pub fn window_settings() -> window::Settings {
@@ -188,4 +230,50 @@ impl App {
             ..Default::default()
         }
     }
+
+    fn launch_selected(&self) -> Task<Message> {
+        if self.filtered_indices.is_empty() {
+            return Task::none();
+        }
+
+        let entry_idx = self.filtered_indices[self.selected_index];
+        let entry = &self.config.entry[entry_idx];
+
+        let result = match entry {
+            crate::config::Entry::Directory { path, .. } => {
+                let expanded = shellexpand::tilde(path).to_string();
+                std::process::Command::new("alacritty")
+                    .arg("--working-directory")
+                    .arg(&expanded)
+                    .spawn()
+            }
+            crate::config::Entry::Ssh { host, port, .. } => {
+                let mut cmd = std::process::Command::new("alacritty");
+                cmd.arg("-e").arg("ssh").arg(host);
+                if let Some(p) = port {
+                    cmd.arg("-p").arg(p.to_string());
+                }
+                cmd.spawn()
+            }
+        };
+
+        if let Err(e) = result {
+            eprintln!("Failed to launch alacritty: {}", e);
+        }
+
+        Task::none()
+    }
+}
+
+fn hotkey_listener() -> impl iced::futures::Stream<Item = Message> {
+    iced::stream::channel(10, async |mut sender| {
+        use iced::futures::SinkExt;
+        let receiver = global_hotkey::GlobalHotKeyEvent::receiver();
+        loop {
+            if let Ok(_event) = receiver.try_recv() {
+                let _ = sender.send(Message::ToggleVisibility).await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
 }

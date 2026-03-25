@@ -2923,6 +2923,8 @@ dependencies = [
  "nucleo-matcher",
  "serde",
  "shellexpand",
+ "tempfile",
+ "tokio",
  "toml",
 ]
 
