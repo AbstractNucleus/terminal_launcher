@@ -57,6 +57,7 @@ pub enum Message {
     EditorDelete,
     EditorConfirmDelete,
     EditorCancel,
+    WindowFocusLost,
 }
 
 impl App {
@@ -272,6 +273,22 @@ impl App {
                 self.clear_editor_fields();
                 self.current_view = View::Launcher;
                 Task::none()
+            }
+            Message::WindowFocusLost => {
+                if self.current_view == View::Launcher && self.visible {
+                    self.search_query.clear();
+                    self.selected_index = 0;
+                    self.rebuild_filtered_list();
+                    self.visible = false;
+                    window::latest().and_then(|id| {
+                        Task::batch([
+                            window::set_level(id, window::Level::Normal),
+                            window::minimize(id, true),
+                        ])
+                    })
+                } else {
+                    Task::none()
+                }
             }
         }
     }
@@ -511,7 +528,12 @@ impl App {
 
         let hotkey_sub = Subscription::run(hotkey_listener);
 
-        Subscription::batch([keyboard_sub, hotkey_sub])
+        let focus_sub = iced::event::listen_with(|event, _status, _id| match event {
+            iced::Event::Window(window::Event::Unfocused) => Some(Message::WindowFocusLost),
+            _ => None,
+        });
+
+        Subscription::batch([keyboard_sub, hotkey_sub, focus_sub])
     }
 
     pub fn window_settings() -> window::Settings {
