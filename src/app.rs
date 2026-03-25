@@ -1,10 +1,22 @@
 use iced::keyboard::Event as KeyEvent;
-use iced::widget::{column, container, text, text_input};
+use iced::widget::{button, column, container, radio, row, scrollable, text, text_input, Column};
 use iced::window;
 use iced::{Element, Size, Subscription, Task};
 
 use crate::config::Config;
 use crate::theme::AppColors;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum View {
+    Launcher,
+    Editor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryType {
+    Directory,
+    Ssh,
+}
 
 pub struct App {
     config: Config,
@@ -15,6 +27,14 @@ pub struct App {
     fuzzy_matcher: crate::fuzzy::FuzzyMatcher,
     filtered_indices: Vec<usize>,
     selected_index: usize,
+    current_view: View,
+    editor_name: String,
+    editor_entry_type: EntryType,
+    editor_path: String,
+    editor_host: String,
+    editor_port: String,
+    editor_selected: Option<usize>,
+    editor_confirm_delete: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -27,12 +47,27 @@ pub enum Message {
     ToggleEditor,
     ToggleVisibility,
     Noop,
+    EditorNameChanged(String),
+    EditorTypeChanged(EntryType),
+    EditorPathChanged(String),
+    EditorHostChanged(String),
+    EditorPortChanged(String),
+    EditorSelectEntry(usize),
+    EditorSave,
+    EditorDelete,
+    EditorConfirmDelete,
+    EditorCancel,
 }
 
 impl App {
     pub fn new(config: Config, first_run: bool) -> (Self, Task<Message>) {
         let colors = AppColors::from_settings(&config.settings);
         let filtered_indices: Vec<usize> = (0..config.entry.len()).collect();
+        let current_view = if first_run {
+            View::Editor
+        } else {
+            View::Launcher
+        };
         (
             Self {
                 config,
@@ -43,6 +78,14 @@ impl App {
                 fuzzy_matcher: crate::fuzzy::FuzzyMatcher::new(),
                 filtered_indices,
                 selected_index: 0,
+                current_view,
+                editor_name: String::new(),
+                editor_entry_type: EntryType::Directory,
+                editor_path: String::new(),
+                editor_host: String::new(),
+                editor_port: String::new(),
+                editor_selected: None,
+                editor_confirm_delete: false,
             },
             Task::none(),
         )
@@ -134,12 +177,262 @@ impl App {
                     })
                 }
             }
-            Message::ToggleEditor => Task::none(),
+            Message::ToggleEditor => {
+                self.current_view = match self.current_view {
+                    View::Launcher => View::Editor,
+                    View::Editor => View::Launcher,
+                };
+                self.clear_editor_fields();
+                Task::none()
+            }
             Message::Noop => Task::none(),
+            Message::EditorNameChanged(v) => {
+                self.editor_name = v;
+                Task::none()
+            }
+            Message::EditorTypeChanged(t) => {
+                self.editor_entry_type = t;
+                Task::none()
+            }
+            Message::EditorPathChanged(v) => {
+                self.editor_path = v;
+                Task::none()
+            }
+            Message::EditorHostChanged(v) => {
+                self.editor_host = v;
+                Task::none()
+            }
+            Message::EditorPortChanged(v) => {
+                self.editor_port = v;
+                Task::none()
+            }
+            Message::EditorSelectEntry(idx) => {
+                self.editor_selected = Some(idx);
+                self.editor_confirm_delete = false;
+                let entry = &self.config.entry[idx];
+                self.editor_name = entry.name().to_string();
+                match entry {
+                    crate::config::Entry::Directory { path, .. } => {
+                        self.editor_entry_type = EntryType::Directory;
+                        self.editor_path = path.clone();
+                        self.editor_host.clear();
+                        self.editor_port.clear();
+                    }
+                    crate::config::Entry::Ssh { host, port, .. } => {
+                        self.editor_entry_type = EntryType::Ssh;
+                        self.editor_host = host.clone();
+                        self.editor_port = port.map(|p| p.to_string()).unwrap_or_default();
+                        self.editor_path.clear();
+                    }
+                }
+                Task::none()
+            }
+            Message::EditorSave => {
+                let new_entry = match self.editor_entry_type {
+                    EntryType::Directory => crate::config::Entry::Directory {
+                        name: self.editor_name.clone(),
+                        path: self.editor_path.clone(),
+                    },
+                    EntryType::Ssh => crate::config::Entry::Ssh {
+                        name: self.editor_name.clone(),
+                        host: self.editor_host.clone(),
+                        port: self.editor_port.parse().ok(),
+                    },
+                };
+                if let Some(idx) = self.editor_selected {
+                    self.config.entry[idx] = new_entry;
+                } else {
+                    self.config.entry.push(new_entry);
+                }
+                if let Err(e) = self.config.save_to(&Config::config_path()) {
+                    eprintln!("Failed to save config: {}", e);
+                }
+                self.clear_editor_fields();
+                self.rebuild_filtered_list();
+                self.current_view = View::Launcher;
+                Task::none()
+            }
+            Message::EditorDelete => {
+                self.editor_confirm_delete = true;
+                Task::none()
+            }
+            Message::EditorConfirmDelete => {
+                if let Some(idx) = self.editor_selected {
+                    self.config.entry.remove(idx);
+                    if let Err(e) = self.config.save_to(&Config::config_path()) {
+                        eprintln!("Failed to save config: {}", e);
+                    }
+                }
+                self.clear_editor_fields();
+                self.rebuild_filtered_list();
+                Task::none()
+            }
+            Message::EditorCancel => {
+                self.clear_editor_fields();
+                self.current_view = View::Launcher;
+                Task::none()
+            }
         }
     }
 
+    fn clear_editor_fields(&mut self) {
+        self.editor_name.clear();
+        self.editor_path.clear();
+        self.editor_host.clear();
+        self.editor_port.clear();
+        self.editor_entry_type = EntryType::Directory;
+        self.editor_selected = None;
+        self.editor_confirm_delete = false;
+    }
+
+    fn rebuild_filtered_list(&mut self) {
+        let names: Vec<String> = self
+            .config
+            .entry
+            .iter()
+            .map(|e| format!("{} {}", e.name(), e.display_detail()))
+            .collect();
+        self.filtered_indices = self.fuzzy_matcher.filter(&self.search_query, &names);
+        self.selected_index = 0;
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
+        match self.current_view {
+            View::Launcher => self.launcher_view(),
+            View::Editor => self.editor_view(),
+        }
+    }
+
+    fn editor_view(&self) -> Element<'_, Message> {
+        let title = text("Config Editor").size(20.0);
+
+        let name_input = text_input("Entry name", &self.editor_name)
+            .on_input(Message::EditorNameChanged)
+            .padding(8)
+            .size(14.0);
+
+        let type_row = row![
+            radio(
+                "Directory",
+                EntryType::Directory,
+                Some(self.editor_entry_type),
+                Message::EditorTypeChanged,
+            ),
+            radio(
+                "SSH",
+                EntryType::Ssh,
+                Some(self.editor_entry_type),
+                Message::EditorTypeChanged,
+            ),
+        ]
+        .spacing(20);
+
+        let conditional_fields: Element<'_, Message> = match self.editor_entry_type {
+            EntryType::Directory => text_input("Path (e.g. ~/projects)", &self.editor_path)
+                .on_input(Message::EditorPathChanged)
+                .padding(8)
+                .size(14.0)
+                .into(),
+            EntryType::Ssh => column![
+                text_input("Host (e.g. user@host.com)", &self.editor_host)
+                    .on_input(Message::EditorHostChanged)
+                    .padding(8)
+                    .size(14.0),
+                text_input("Port (optional)", &self.editor_port)
+                    .on_input(Message::EditorPortChanged)
+                    .padding(8)
+                    .size(14.0),
+            ]
+            .spacing(8)
+            .into(),
+        };
+
+        let mut button_row = row![
+            button("Save").on_press(Message::EditorSave).padding(8),
+            button("Cancel").on_press(Message::EditorCancel).padding(8),
+        ]
+        .spacing(10);
+
+        if self.editor_selected.is_some() {
+            if self.editor_confirm_delete {
+                button_row = button_row.push(
+                    button("Confirm Delete")
+                        .on_press(Message::EditorConfirmDelete)
+                        .padding(8),
+                );
+            } else {
+                button_row = button_row.push(
+                    button("Delete").on_press(Message::EditorDelete).padding(8),
+                );
+            }
+        }
+
+        let entries: Vec<Element<'_, Message>> = self
+            .config
+            .entry
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let is_selected = self.editor_selected == Some(idx);
+                let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
+                    .size(14.0);
+
+                button(
+                    container(label).width(iced::Length::Fill).padding(4),
+                )
+                .on_press(Message::EditorSelectEntry(idx))
+                .padding(4)
+                .style(move |_theme: &iced::Theme, _status| {
+                    if is_selected {
+                        button::Style {
+                            background: Some(iced::Background::Color(iced::Color::from_rgb8(
+                                0x89, 0xb4, 0xfa,
+                            ))),
+                            text_color: iced::Color::from_rgb8(0x1e, 0x1e, 0x2e),
+                            ..Default::default()
+                        }
+                    } else {
+                        button::Style {
+                            background: Some(iced::Background::Color(iced::Color::from_rgb8(
+                                0x31, 0x32, 0x44,
+                            ))),
+                            text_color: iced::Color::from_rgb8(0xcd, 0xd6, 0xf4),
+                            ..Default::default()
+                        }
+                    }
+                })
+                .width(iced::Length::Fill)
+                .into()
+            })
+            .collect();
+
+        let entry_list = scrollable(Column::with_children(entries).spacing(4));
+
+        let content = column![
+            title,
+            name_input,
+            type_row,
+            conditional_fields,
+            button_row,
+            text("Entries:").size(16.0),
+            entry_list,
+        ]
+        .spacing(10)
+        .padding(20);
+
+        container(content)
+            .width(iced::Length::Fill)
+            .height(iced::Length::Fill)
+            .style(|_theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgb8(
+                    0x1e, 0x1e, 0x2e,
+                ))),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn launcher_view(&self) -> Element<'_, Message> {
         let search = text_input("Search...", &self.search_query)
             .on_input(Message::SearchChanged)
             .padding(10)
