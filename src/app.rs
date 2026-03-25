@@ -247,6 +247,7 @@ impl App {
                 if let Err(e) = self.config.save_to(&Config::config_path()) {
                     eprintln!("Failed to save config: {}", e);
                 }
+                self.colors = AppColors::from_settings(&self.config.settings);
                 self.clear_editor_fields();
                 self.rebuild_filtered_list();
                 self.current_view = View::Launcher;
@@ -304,7 +305,11 @@ impl App {
     }
 
     fn editor_view(&self) -> Element<'_, Message> {
-        let title = text("Config Editor").size(20.0);
+        let bg = self.colors.background;
+        let highlight = self.colors.highlight;
+        let fg = self.colors.foreground;
+
+        let title = text("Config Editor").size(20.0).color(fg);
 
         let name_input = text_input("Entry name", &self.editor_name)
             .on_input(Message::EditorNameChanged)
@@ -375,7 +380,8 @@ impl App {
             .map(|(idx, entry)| {
                 let is_selected = self.editor_selected == Some(idx);
                 let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
-                    .size(14.0);
+                    .size(14.0)
+                    .color(fg);
 
                 button(
                     container(label).width(iced::Length::Fill).padding(4),
@@ -385,18 +391,14 @@ impl App {
                 .style(move |_theme: &iced::Theme, _status| {
                     if is_selected {
                         button::Style {
-                            background: Some(iced::Background::Color(iced::Color::from_rgb8(
-                                0x89, 0xb4, 0xfa,
-                            ))),
-                            text_color: iced::Color::from_rgb8(0x1e, 0x1e, 0x2e),
+                            background: Some(iced::Background::Color(highlight)),
+                            text_color: bg,
                             ..Default::default()
                         }
                     } else {
                         button::Style {
-                            background: Some(iced::Background::Color(iced::Color::from_rgb8(
-                                0x31, 0x32, 0x44,
-                            ))),
-                            text_color: iced::Color::from_rgb8(0xcd, 0xd6, 0xf4),
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: fg,
                             ..Default::default()
                         }
                     }
@@ -414,7 +416,7 @@ impl App {
             type_row,
             conditional_fields,
             button_row,
-            text("Entries:").size(16.0),
+            text("Entries:").size(16.0).color(fg),
             entry_list,
         ]
         .spacing(10)
@@ -423,16 +425,18 @@ impl App {
         container(content)
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
-            .style(|_theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgb8(
-                    0x1e, 0x1e, 0x2e,
-                ))),
+            .style(move |_theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(bg)),
                 ..Default::default()
             })
             .into()
     }
 
     fn launcher_view(&self) -> Element<'_, Message> {
+        let bg = self.colors.background;
+        let highlight = self.colors.highlight;
+        let fg = self.colors.foreground;
+
         let search = text_input("Search...", &self.search_query)
             .on_input(Message::SearchChanged)
             .padding(10)
@@ -447,7 +451,8 @@ impl App {
                 let is_selected = view_idx == self.selected_index;
 
                 let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
-                    .size(self.colors.font_size);
+                    .size(self.colors.font_size)
+                    .color(fg);
 
                 let row = container(label)
                     .width(iced::Length::Fill)
@@ -455,9 +460,7 @@ impl App {
                     .style(move |_theme: &iced::Theme| {
                         if is_selected {
                             container::Style {
-                                background: Some(iced::Background::Color(
-                                    iced::Color::from_rgb8(0x89, 0xb4, 0xfa),
-                                )),
+                                background: Some(iced::Background::Color(highlight)),
                                 ..Default::default()
                             }
                         } else {
@@ -477,10 +480,8 @@ impl App {
         container(content)
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
-            .style(|_theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(
-                    iced::Color::from_rgb8(0x1e, 0x1e, 0x2e),
-                )),
+            .style(move |_theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(bg)),
                 ..Default::default()
             })
             .into()
