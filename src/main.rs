@@ -8,7 +8,7 @@ mod theme;
 use config::Config;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::GlobalHotKeyManager;
-use tray_icon::menu::{Menu, MenuItem};
+use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
 fn parse_modifier(s: &str) -> Modifiers {
@@ -89,7 +89,10 @@ fn main() -> iced::Result {
     // Create a 16x16 solid icon (highlight color from config, or a default blue)
     let icon = create_tray_icon_image(&config);
     let tray_menu = Menu::new();
+    let config_item = MenuItem::new("Config", true, None);
     let exit_item = MenuItem::new("Exit", true, None);
+    tray_menu.append(&config_item).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
     tray_menu.append(&exit_item).unwrap();
 
     let _tray_icon = TrayIconBuilder::new()
@@ -101,8 +104,10 @@ fn main() -> iced::Result {
         .expect("Failed to create tray icon");
     // _tray_icon must stay alive for the icon to remain visible
 
+    let config_menu_id = config_item.id().clone();
+    let exit_menu_id = exit_item.id().clone();
     iced::application(
-        move || app::App::new(config.clone(), first_run),
+        move || app::App::new(config.clone(), first_run, config_menu_id.clone(), exit_menu_id.clone()),
         app::App::update,
         app::App::view,
     )
