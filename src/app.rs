@@ -38,6 +38,7 @@ pub struct App {
     editor_selected: Option<usize>,
     editor_confirm_delete: bool,
     config_menu_id: MenuId,
+    restart_menu_id: MenuId,
     exit_menu_id: MenuId,
 }
 
@@ -64,10 +65,11 @@ pub enum Message {
     WindowFocusLost,
     Exit,
     OpenConfig,
+    Restart,
 }
 
 impl App {
-    pub fn new(config: Config, first_run: bool, config_menu_id: MenuId, exit_menu_id: MenuId) -> (Self, Task<Message>) {
+    pub fn new(config: Config, first_run: bool, config_menu_id: MenuId, restart_menu_id: MenuId, exit_menu_id: MenuId) -> (Self, Task<Message>) {
         let colors = AppColors::from_settings(&config.settings);
         let filtered_indices: Vec<usize> = (0..config.entry.len()).collect();
         let current_view = if first_run {
@@ -94,6 +96,7 @@ impl App {
                 editor_selected: None,
                 editor_confirm_delete: false,
                 config_menu_id,
+                restart_menu_id,
                 exit_menu_id,
             },
             Task::none(),
@@ -319,6 +322,21 @@ impl App {
                     eprintln!("Failed to open config directory: {}", e);
                 }
                 Task::none()
+            }
+            Message::Restart => {
+                if let Ok(exe) = std::env::current_exe() {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NO_WINDOW: u32 = 0x08000000;
+                    let exe_path = exe.to_string_lossy().to_string();
+                    if let Err(e) = std::process::Command::new("cmd")
+                        .args(["/C", "ping", "-n", "2", "127.0.0.1", ">nul", "&", &exe_path])
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .spawn()
+                    {
+                        eprintln!("Failed to restart: {}", e);
+                    }
+                }
+                std::process::exit(0);
             }
             Message::Exit => {
                 std::process::exit(0);
@@ -561,10 +579,11 @@ impl App {
         });
 
         let config_menu_id = self.config_menu_id.clone();
+        let restart_menu_id = self.restart_menu_id.clone();
         let exit_menu_id = self.exit_menu_id.clone();
         let hotkey_sub = Subscription::run_with(
-            (config_menu_id, exit_menu_id),
-            |(config_id, exit_id)| hotkey_listener(config_id.clone(), exit_id.clone()),
+            (config_menu_id, restart_menu_id, exit_menu_id),
+            |(config_id, restart_id, exit_id)| hotkey_listener(config_id.clone(), restart_id.clone(), exit_id.clone()),
         );
 
         let event_sub = iced::event::listen_with(|event, _status, _id| match event {
@@ -628,7 +647,7 @@ impl App {
     }
 }
 
-fn hotkey_listener(config_menu_id: MenuId, exit_menu_id: MenuId) -> impl iced::futures::Stream<Item = Message> {
+fn hotkey_listener(config_menu_id: MenuId, restart_menu_id: MenuId, exit_menu_id: MenuId) -> impl iced::futures::Stream<Item = Message> {
     iced::stream::channel(10, async move |mut sender| {
         use iced::futures::SinkExt;
         let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
@@ -642,6 +661,8 @@ fn hotkey_listener(config_menu_id: MenuId, exit_menu_id: MenuId) -> impl iced::f
             if let Ok(event) = menu_receiver.try_recv() {
                 if event.id == config_menu_id {
                     let _ = sender.send(Message::OpenConfig).await;
+                } else if event.id == restart_menu_id {
+                    let _ = sender.send(Message::Restart).await;
                 } else if event.id == exit_menu_id {
                     let _ = sender.send(Message::Exit).await;
                 }

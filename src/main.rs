@@ -90,8 +90,10 @@ fn main() -> iced::Result {
     let icon = create_tray_icon_image(&config);
     let tray_menu = Menu::new();
     let config_item = MenuItem::new("Config", true, None);
+    let restart_item = MenuItem::new("Restart", true, None);
     let exit_item = MenuItem::new("Exit", true, None);
     tray_menu.append(&config_item).unwrap();
+    tray_menu.append(&restart_item).unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
     tray_menu.append(&exit_item).unwrap();
 
@@ -105,9 +107,10 @@ fn main() -> iced::Result {
     // _tray_icon must stay alive for the icon to remain visible
 
     let config_menu_id = config_item.id().clone();
+    let restart_menu_id = restart_item.id().clone();
     let exit_menu_id = exit_item.id().clone();
     iced::application(
-        move || app::App::new(config.clone(), first_run, config_menu_id.clone(), exit_menu_id.clone()),
+        move || app::App::new(config.clone(), first_run, config_menu_id.clone(), restart_menu_id.clone(), exit_menu_id.clone()),
         app::App::update,
         app::App::view,
     )
