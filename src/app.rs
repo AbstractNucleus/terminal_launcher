@@ -51,7 +51,6 @@ pub enum Message {
     Hide,
     ToggleEditor,
     ToggleVisibility,
-    Noop,
     EditorNameChanged(String),
     EditorTypeChanged(EntryType),
     EditorPathChanged(String),
@@ -106,15 +105,8 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(query) => {
-                self.search_query = query.clone();
-                let names: Vec<String> = self
-                    .config
-                    .entry
-                    .iter()
-                    .map(|e| format!("{} {}", e.name(), e.display_detail()))
-                    .collect();
-                self.filtered_indices = self.fuzzy_matcher.filter(&query, &names);
-                self.selected_index = 0;
+                self.search_query = query;
+                self.rebuild_filtered_list();
                 Task::none()
             }
             Message::MoveUp => {
@@ -134,50 +126,20 @@ impl App {
             Message::Launch => {
                 let launch_task = self.launch_selected();
                 self.search_query.clear();
-                self.selected_index = 0;
-                let names: Vec<String> = self
-                    .config
-                    .entry
-                    .iter()
-                    .map(|e| format!("{} {}", e.name(), e.display_detail()))
-                    .collect();
-                self.filtered_indices = self.fuzzy_matcher.filter("", &names);
+                self.rebuild_filtered_list();
                 self.visible = false;
-                let hide_task = window::latest().and_then(|id| {
-                    Task::batch([
-                        window::set_level(id, window::Level::Normal),
-                        window::minimize(id, true),
-                    ])
-                });
-                Task::batch([launch_task, hide_task])
+                Task::batch([launch_task, Self::hide_window_task()])
             }
             Message::Hide => {
                 self.search_query.clear();
-                self.selected_index = 0;
-                let names: Vec<String> = self
-                    .config
-                    .entry
-                    .iter()
-                    .map(|e| format!("{} {}", e.name(), e.display_detail()))
-                    .collect();
-                self.filtered_indices = self.fuzzy_matcher.filter("", &names);
+                self.rebuild_filtered_list();
                 self.visible = false;
-                window::latest().and_then(|id| {
-                    Task::batch([
-                        window::set_level(id, window::Level::Normal),
-                        window::minimize(id, true),
-                    ])
-                })
+                Self::hide_window_task()
             }
             Message::ToggleVisibility => {
                 if self.visible {
                     self.visible = false;
-                    window::latest().and_then(|id| {
-                        Task::batch([
-                            window::set_level(id, window::Level::Normal),
-                            window::minimize(id, true),
-                        ])
-                    })
+                    Self::hide_window_task()
                 } else {
                     self.visible = true;
                     self.last_shown = std::time::Instant::now();
@@ -202,7 +164,6 @@ impl App {
                 self.clear_editor_fields();
                 Task::none()
             }
-            Message::Noop => Task::none(),
             Message::EditorNameChanged(v) => {
                 self.editor_name = v;
                 Task::none()
@@ -300,12 +261,7 @@ impl App {
                     self.selected_index = 0;
                     self.rebuild_filtered_list();
                     self.visible = false;
-                    window::latest().and_then(|id| {
-                        Task::batch([
-                            window::set_level(id, window::Level::Normal),
-                            window::minimize(id, true),
-                        ])
-                    })
+                    Self::hide_window_task()
                 } else {
                     Task::none()
                 }
@@ -315,7 +271,15 @@ impl App {
                     .parent()
                     .expect("config path has parent")
                     .to_path_buf();
-                if let Err(e) = std::process::Command::new("explorer")
+
+                #[cfg(target_os = "windows")]
+                let open_cmd = "explorer";
+                #[cfg(target_os = "macos")]
+                let open_cmd = "open";
+                #[cfg(target_os = "linux")]
+                let open_cmd = "xdg-open";
+
+                if let Err(e) = std::process::Command::new(open_cmd)
                     .arg(&config_dir)
                     .spawn()
                 {
@@ -325,15 +289,24 @@ impl App {
             }
             Message::Restart => {
                 if let Ok(exe) = std::env::current_exe() {
-                    use std::os::windows::process::CommandExt;
-                    const CREATE_NO_WINDOW: u32 = 0x08000000;
-                    let exe_path = exe.to_string_lossy().to_string();
-                    if let Err(e) = std::process::Command::new("cmd")
-                        .args(["/C", "ping", "-n", "2", "127.0.0.1", ">nul", "&", &exe_path])
-                        .creation_flags(CREATE_NO_WINDOW)
-                        .spawn()
+                    #[cfg(target_os = "windows")]
                     {
-                        eprintln!("Failed to restart: {}", e);
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x08000000;
+                        let exe_path = exe.to_string_lossy().to_string();
+                        if let Err(e) = std::process::Command::new("cmd")
+                            .args(["/C", "ping", "-n", "2", "127.0.0.1", ">nul", "&", &exe_path])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .spawn()
+                        {
+                            eprintln!("Failed to restart: {}", e);
+                        }
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        if let Err(e) = std::process::Command::new(&exe).spawn() {
+                            eprintln!("Failed to restart: {}", e);
+                        }
                     }
                 }
                 std::process::exit(0);
@@ -342,6 +315,15 @@ impl App {
                 std::process::exit(0);
             }
         }
+    }
+
+    fn hide_window_task() -> Task<Message> {
+        window::latest().and_then(|id| {
+            Task::batch([
+                window::set_level(id, window::Level::Normal),
+                window::minimize(id, true),
+            ])
+        })
     }
 
     fn clear_editor_fields(&mut self) {
@@ -557,27 +539,6 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let keyboard_sub = iced::keyboard::listen().map(|event| match event {
-            KeyEvent::KeyPressed {
-                key, modifiers, ..
-            } => {
-                use iced::keyboard::key::Named;
-                use iced::keyboard::Key;
-
-                match key {
-                    Key::Named(Named::ArrowUp) => Message::MoveUp,
-                    Key::Named(Named::ArrowDown) => Message::MoveDown,
-                    Key::Named(Named::Enter) if !modifiers.alt() => Message::Launch,
-                    Key::Named(Named::Escape) => Message::Hide,
-                    Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
-                        Message::ToggleEditor
-                    }
-                    _ => Message::Noop,
-                }
-            }
-            _ => Message::Noop,
-        });
-
         let config_menu_id = self.config_menu_id.clone();
         let restart_menu_id = self.restart_menu_id.clone();
         let exit_menu_id = self.exit_menu_id.clone();
@@ -586,31 +547,50 @@ impl App {
             |(config_id, restart_id, exit_id)| hotkey_listener(config_id.clone(), restart_id.clone(), exit_id.clone()),
         );
 
-        let event_sub = iced::event::listen_with(|event, _status, _id| match event {
-            iced::Event::Window(window::Event::Unfocused) => Some(Message::WindowFocusLost),
-            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
-                ..
-            }) => Some(Message::Hide),
-            _ => None,
+        let event_sub = iced::event::listen_with(|event, _status, _id| {
+            use iced::keyboard::key::Named;
+            use iced::keyboard::Key;
+
+            match event {
+                iced::Event::Window(window::Event::Unfocused) => Some(Message::WindowFocusLost),
+                iced::Event::Keyboard(KeyEvent::KeyPressed { key, modifiers, .. }) => match key {
+                    Key::Named(Named::ArrowUp) => Some(Message::MoveUp),
+                    Key::Named(Named::ArrowDown) => Some(Message::MoveDown),
+                    Key::Named(Named::Enter) if !modifiers.alt() => Some(Message::Launch),
+                    Key::Named(Named::Escape) => Some(Message::Hide),
+                    Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
+                        Some(Message::ToggleEditor)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
         });
 
-        Subscription::batch([keyboard_sub, hotkey_sub, event_sub])
+        Subscription::batch([hotkey_sub, event_sub])
     }
 
     pub fn window_settings() -> window::Settings {
-        window::Settings {
+        let mut settings = window::Settings {
             size: Size::new(500.0, 400.0),
             position: window::Position::Centered,
             decorations: false,
             resizable: false,
             level: window::Level::AlwaysOnTop,
-            platform_specific: window::settings::PlatformSpecific {
-                skip_taskbar: true,
-                ..Default::default()
-            },
             ..Default::default()
+        };
+
+        #[cfg(target_os = "windows")]
+        {
+            settings.platform_specific.skip_taskbar = true;
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            settings.platform_specific.override_redirect = true;
+        }
+
+        settings
     }
 
     fn launch_selected(&self) -> Task<Message> {

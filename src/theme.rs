@@ -2,8 +2,8 @@ use iced::Color;
 
 use crate::config::Settings;
 
-/// Parse a hex color string (e.g., "#1e1e2e") into an iced Color.
-pub fn parse_hex_color(hex: &str) -> Option<Color> {
+/// Parse "#rrggbb" into (r, g, b) tuple.
+pub fn parse_hex_rgb(hex: &str) -> Option<(u8, u8, u8)> {
     let hex = hex.strip_prefix('#')?;
     if hex.len() != 6 {
         return None;
@@ -11,6 +11,12 @@ pub fn parse_hex_color(hex: &str) -> Option<Color> {
     let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
     let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some((r, g, b))
+}
+
+/// Parse a hex color string (e.g., "#1e1e2e") into an iced Color.
+pub fn parse_hex_color(hex: &str) -> Option<Color> {
+    let (r, g, b) = parse_hex_rgb(hex)?;
     Some(Color::from_rgb8(r, g, b))
 }
 

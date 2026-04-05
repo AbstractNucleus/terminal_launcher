@@ -122,7 +122,7 @@ fn main() -> iced::Result {
 
 /// Create a simple 16x16 solid-color RGBA icon for the system tray.
 fn create_tray_icon_image(config: &Config) -> Icon {
-    let (r, g, b) = parse_hex_rgb(&config.settings.highlight).unwrap_or((0x89, 0xb4, 0xfa));
+    let (r, g, b) = theme::parse_hex_rgb(&config.settings.highlight).unwrap_or((0x89, 0xb4, 0xfa));
     let width = 16u32;
     let height = 16u32;
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
@@ -135,14 +135,3 @@ fn create_tray_icon_image(config: &Config) -> Icon {
     Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon image")
 }
 
-/// Parse "#rrggbb" into (r, g, b).
-fn parse_hex_rgb(hex: &str) -> Option<(u8, u8, u8)> {
-    let hex = hex.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some((r, g, b))
-}
