@@ -27,6 +27,18 @@ fn default_foreground() -> String { "#cdd6f4".to_string() }
 fn default_highlight() -> String { "#89b4fa".to_string() }
 fn default_font_size() -> u16 { 14 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            background: default_background(),
+            foreground: default_foreground(),
+            highlight: default_highlight(),
+            font_size: default_font_size(),
+            hotkey: HotkeyConfig::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeyConfig {
     #[serde(default = "default_modifier")]
@@ -83,13 +95,7 @@ impl Entry {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            settings: Settings {
-                background: default_background(),
-                foreground: default_foreground(),
-                highlight: default_highlight(),
-                font_size: default_font_size(),
-                hotkey: HotkeyConfig::default(),
-            },
+            settings: Settings::default(),
             entry: vec![
                 Entry::Directory {
                     name: "Example Project".to_string(),
