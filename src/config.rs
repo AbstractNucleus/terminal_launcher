@@ -16,15 +16,30 @@ pub struct Settings {
     pub foreground: String,
     #[serde(default = "default_highlight")]
     pub highlight: String,
+    #[serde(default = "default_surface")]
+    pub surface: String,
+    #[serde(default = "default_muted")]
+    pub muted: String,
+    #[serde(default = "default_accent")]
+    pub accent: String,
+    #[serde(default = "default_border")]
+    pub border: String,
+    #[serde(default = "default_danger")]
+    pub danger: String,
     #[serde(default = "default_font_size")]
     pub font_size: u16,
     #[serde(default)]
     pub hotkey: HotkeyConfig,
 }
 
-fn default_background() -> String { "#1e1e2e".to_string() }
-fn default_foreground() -> String { "#cdd6f4".to_string() }
-fn default_highlight() -> String { "#89b4fa".to_string() }
+fn default_background() -> String { "#0f0f0f".to_string() }
+fn default_foreground() -> String { "#e8e8e8".to_string() }
+fn default_highlight() -> String { "#c4b5fd".to_string() }
+fn default_surface() -> String { "#2e2e2e".to_string() }
+fn default_muted() -> String { "#909090".to_string() }
+fn default_accent() -> String { "#7a9cc7".to_string() }
+fn default_border() -> String { "#2e2e2e".to_string() }
+fn default_danger() -> String { "#e06c75".to_string() }
 fn default_font_size() -> u16 { 14 }
 
 impl Default for Settings {
@@ -33,6 +48,11 @@ impl Default for Settings {
             background: default_background(),
             foreground: default_foreground(),
             highlight: default_highlight(),
+            surface: default_surface(),
+            muted: default_muted(),
+            accent: default_accent(),
+            border: default_border(),
+            danger: default_danger(),
             font_size: default_font_size(),
             hotkey: HotkeyConfig::default(),
         }
@@ -216,11 +236,34 @@ port = 2222
 [settings]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.settings.background, "#1e1e2e");
+        assert_eq!(config.settings.background, "#0f0f0f");
+        assert_eq!(config.settings.foreground, "#e8e8e8");
+        assert_eq!(config.settings.highlight, "#c4b5fd");
+        assert_eq!(config.settings.surface, "#2e2e2e");
+        assert_eq!(config.settings.muted, "#909090");
+        assert_eq!(config.settings.accent, "#7a9cc7");
+        assert_eq!(config.settings.border, "#2e2e2e");
+        assert_eq!(config.settings.danger, "#e06c75");
         assert_eq!(config.settings.font_size, 14);
         assert_eq!(config.settings.hotkey.modifier, "Alt");
         assert_eq!(config.settings.hotkey.key, "Space");
         assert!(config.entry.is_empty());
+    }
+
+    #[test]
+    fn parse_old_config_missing_new_fields() {
+        let toml_str = r##"
+[settings]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+highlight = "#89b4fa"
+font_size = 14
+"##;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.settings.background, "#1e1e2e");
+        assert_eq!(config.settings.surface, "#2e2e2e");
+        assert_eq!(config.settings.muted, "#909090");
+        assert_eq!(config.settings.danger, "#e06c75");
     }
 
     #[test]
@@ -272,6 +315,11 @@ host = "user@host.com"
                 background: "#111".to_string(),
                 foreground: "#222".to_string(),
                 highlight: "#333".to_string(),
+                surface: "#444".to_string(),
+                muted: "#555".to_string(),
+                accent: "#666".to_string(),
+                border: "#777".to_string(),
+                danger: "#888".to_string(),
                 font_size: 12,
                 hotkey: HotkeyConfig::default(),
             },
@@ -285,6 +333,8 @@ host = "user@host.com"
         let serialized = toml::to_string(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.settings.background, "#111");
+        assert_eq!(deserialized.settings.surface, "#444");
+        assert_eq!(deserialized.settings.danger, "#888");
         assert_eq!(deserialized.entry.len(), 1);
     }
 

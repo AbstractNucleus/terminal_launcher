@@ -26,6 +26,11 @@ pub struct AppColors {
     pub background: Color,
     pub foreground: Color,
     pub highlight: Color,
+    pub surface: Color,
+    pub muted: Color,
+    pub accent: Color,
+    pub border: Color,
+    pub danger: Color,
     pub font_size: f32,
 }
 
@@ -33,11 +38,21 @@ impl AppColors {
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
             background: parse_hex_color(&settings.background)
-                .unwrap_or(Color::from_rgb8(0x1e, 0x1e, 0x2e)),
+                .unwrap_or(Color::from_rgb8(0x0f, 0x0f, 0x0f)),
             foreground: parse_hex_color(&settings.foreground)
-                .unwrap_or(Color::from_rgb8(0xcd, 0xd6, 0xf4)),
+                .unwrap_or(Color::from_rgb8(0xe8, 0xe8, 0xe8)),
             highlight: parse_hex_color(&settings.highlight)
-                .unwrap_or(Color::from_rgb8(0x89, 0xb4, 0xfa)),
+                .unwrap_or(Color::from_rgb8(0xc4, 0xb5, 0xfd)),
+            surface: parse_hex_color(&settings.surface)
+                .unwrap_or(Color::from_rgb8(0x2e, 0x2e, 0x2e)),
+            muted: parse_hex_color(&settings.muted)
+                .unwrap_or(Color::from_rgb8(0x90, 0x90, 0x90)),
+            accent: parse_hex_color(&settings.accent)
+                .unwrap_or(Color::from_rgb8(0x7a, 0x9c, 0xc7)),
+            border: parse_hex_color(&settings.border)
+                .unwrap_or(Color::from_rgb8(0x2e, 0x2e, 0x2e)),
+            danger: parse_hex_color(&settings.danger)
+                .unwrap_or(Color::from_rgb8(0xe0, 0x6c, 0x75)),
             font_size: settings.font_size as f32,
         }
     }
@@ -72,6 +87,11 @@ mod tests {
             background: "#000000".to_string(),
             foreground: "#ffffff".to_string(),
             highlight: "#ff0000".to_string(),
+            surface: "#222222".to_string(),
+            muted: "#888888".to_string(),
+            accent: "#0000ff".to_string(),
+            border: "#333333".to_string(),
+            danger: "#ff0000".to_string(),
             font_size: 16,
             hotkey: Default::default(),
         };
@@ -79,6 +99,11 @@ mod tests {
         assert_eq!(colors.background, Color::from_rgb8(0, 0, 0));
         assert_eq!(colors.foreground, Color::from_rgb8(255, 255, 255));
         assert_eq!(colors.highlight, Color::from_rgb8(255, 0, 0));
+        assert_eq!(colors.surface, Color::from_rgb8(0x22, 0x22, 0x22));
+        assert_eq!(colors.muted, Color::from_rgb8(0x88, 0x88, 0x88));
+        assert_eq!(colors.accent, Color::from_rgb8(0, 0, 255));
+        assert_eq!(colors.border, Color::from_rgb8(0x33, 0x33, 0x33));
+        assert_eq!(colors.danger, Color::from_rgb8(255, 0, 0));
         assert_eq!(colors.font_size, 16.0);
     }
 
@@ -88,10 +113,17 @@ mod tests {
             background: "bad".to_string(),
             foreground: "bad".to_string(),
             highlight: "bad".to_string(),
+            surface: "bad".to_string(),
+            muted: "bad".to_string(),
+            accent: "bad".to_string(),
+            border: "bad".to_string(),
+            danger: "bad".to_string(),
             font_size: 14,
             hotkey: Default::default(),
         };
         let colors = AppColors::from_settings(&settings);
-        assert_eq!(colors.background, Color::from_rgb8(0x1e, 0x1e, 0x2e));
+        assert_eq!(colors.background, Color::from_rgb8(0x0f, 0x0f, 0x0f));
+        assert_eq!(colors.surface, Color::from_rgb8(0x2e, 0x2e, 0x2e));
+        assert_eq!(colors.danger, Color::from_rgb8(0xe0, 0x6c, 0x75));
     }
 }

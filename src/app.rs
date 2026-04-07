@@ -1,5 +1,7 @@
 use iced::keyboard::Event as KeyEvent;
-use iced::widget::{button, column, container, radio, row, scrollable, text, text_input, Column};
+use iced::widget::{
+    button, column, container, radio, row, scrollable, text, text_input, Column,
+};
 use iced::window;
 use iced::{Element, Size, Subscription, Task};
 
@@ -358,13 +360,38 @@ impl App {
         let bg = self.colors.background;
         let highlight = self.colors.highlight;
         let fg = self.colors.foreground;
+        let surface = self.colors.surface;
+        let muted = self.colors.muted;
+        let border_color = self.colors.border;
+        let danger = self.colors.danger;
+
+        let input_style = move |_theme: &iced::Theme, status: text_input::Status| {
+            let border = iced::Border {
+                color: if matches!(status, text_input::Status::Focused { .. }) {
+                    highlight
+                } else {
+                    border_color
+                },
+                width: 1.0,
+                radius: 4.0.into(),
+            };
+            text_input::Style {
+                background: iced::Background::Color(surface),
+                border,
+                icon: muted,
+                placeholder: muted,
+                value: fg,
+                selection: highlight,
+            }
+        };
 
         let title = text("Config Editor").size(20.0).color(fg);
 
         let name_input = text_input("Entry name", &self.editor_name)
             .on_input(Message::EditorNameChanged)
             .padding(8)
-            .size(14.0);
+            .size(14.0)
+            .style(input_style);
 
         let type_row = row![
             radio(
@@ -372,13 +399,39 @@ impl App {
                 EntryType::Directory,
                 Some(self.editor_entry_type),
                 Message::EditorTypeChanged,
-            ),
+            )
+            .style(move |_theme: &iced::Theme, status| {
+                radio::Style {
+                    background: iced::Background::Color(bg),
+                    dot_color: highlight,
+                    border_width: 1.0,
+                    border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
+                        highlight
+                    } else {
+                        muted
+                    },
+                    text_color: Some(fg),
+                }
+            }),
             radio(
                 "SSH",
                 EntryType::Ssh,
                 Some(self.editor_entry_type),
                 Message::EditorTypeChanged,
-            ),
+            )
+            .style(move |_theme: &iced::Theme, status| {
+                radio::Style {
+                    background: iced::Background::Color(bg),
+                    dot_color: highlight,
+                    border_width: 1.0,
+                    border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
+                        highlight
+                    } else {
+                        muted
+                    },
+                    text_color: Some(fg),
+                }
+            }),
         ]
         .spacing(20);
 
@@ -387,24 +440,75 @@ impl App {
                 .on_input(Message::EditorPathChanged)
                 .padding(8)
                 .size(14.0)
+                .style(input_style)
                 .into(),
             EntryType::Ssh => column![
                 text_input("Host (e.g. user@host.com)", &self.editor_host)
                     .on_input(Message::EditorHostChanged)
                     .padding(8)
-                    .size(14.0),
+                    .size(14.0)
+                    .style(input_style),
                 text_input("Port (optional)", &self.editor_port)
                     .on_input(Message::EditorPortChanged)
                     .padding(8)
-                    .size(14.0),
+                    .size(14.0)
+                    .style(input_style),
             ]
             .spacing(8)
             .into(),
         };
 
+        let btn_style = move |_theme: &iced::Theme, status: button::Status| {
+            let bg_color = match status {
+                button::Status::Hovered | button::Status::Pressed => highlight,
+                _ => surface,
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                text_color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    bg
+                } else {
+                    fg
+                },
+                border: iced::Border {
+                    color: border_color,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        };
+
+        let danger_btn_style = move |_theme: &iced::Theme, status: button::Status| {
+            let bg_color = match status {
+                button::Status::Hovered | button::Status::Pressed => danger,
+                _ => surface,
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                text_color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    fg
+                } else {
+                    danger
+                },
+                border: iced::Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        };
+
         let mut button_row = row![
-            button("Save").on_press(Message::EditorSave).padding(8),
-            button("Cancel").on_press(Message::EditorCancel).padding(8),
+            button("Save")
+                .on_press(Message::EditorSave)
+                .padding(8)
+                .style(btn_style),
+            button("Cancel")
+                .on_press(Message::EditorCancel)
+                .padding(8)
+                .style(btn_style),
         ]
         .spacing(10);
 
@@ -413,11 +517,15 @@ impl App {
                 button_row = button_row.push(
                     button("Confirm Delete")
                         .on_press(Message::EditorConfirmDelete)
-                        .padding(8),
+                        .padding(8)
+                        .style(danger_btn_style),
                 );
             } else {
                 button_row = button_row.push(
-                    button("Delete").on_press(Message::EditorDelete).padding(8),
+                    button("Delete")
+                        .on_press(Message::EditorDelete)
+                        .padding(8)
+                        .style(danger_btn_style),
                 );
             }
         }
@@ -431,7 +539,7 @@ impl App {
                 let is_selected = self.editor_selected == Some(idx);
                 let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
                     .size(14.0)
-                    .color(fg);
+                    .color(if is_selected { bg } else { fg });
 
                 button(
                     container(label).width(iced::Length::Fill).padding(4),
@@ -443,6 +551,10 @@ impl App {
                         button::Style {
                             background: Some(iced::Background::Color(highlight)),
                             text_color: bg,
+                            border: iced::Border {
+                                radius: 4.0.into(),
+                                ..Default::default()
+                            },
                             ..Default::default()
                         }
                     } else {
@@ -466,7 +578,7 @@ impl App {
             type_row,
             conditional_fields,
             button_row,
-            text("Entries:").size(16.0).color(fg),
+            text("Entries:").size(16.0).color(muted),
             entry_list,
         ]
         .spacing(10)
@@ -477,6 +589,11 @@ impl App {
             .height(iced::Length::Fill)
             .style(move |_theme: &iced::Theme| container::Style {
                 background: Some(iced::Background::Color(bg)),
+                border: iced::Border {
+                    color: border_color,
+                    width: 1.0,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
             .into()
@@ -486,12 +603,34 @@ impl App {
         let bg = self.colors.background;
         let highlight = self.colors.highlight;
         let fg = self.colors.foreground;
+        let surface = self.colors.surface;
+        let muted = self.colors.muted;
+        let border_color = self.colors.border;
 
         let search = text_input("Search...", &self.search_query)
             .on_input(Message::SearchChanged)
             .padding(10)
             .size(self.colors.font_size)
-            .id("search-input");
+            .id("search-input")
+            .style(move |_theme: &iced::Theme, status| {
+                let border = iced::Border {
+                    color: if matches!(status, text_input::Status::Focused { .. }) {
+                        highlight
+                    } else {
+                        border_color
+                    },
+                    width: 1.0,
+                    radius: 4.0.into(),
+                };
+                text_input::Style {
+                    background: iced::Background::Color(surface),
+                    border,
+                    icon: muted,
+                    placeholder: muted,
+                    value: fg,
+                    selection: highlight,
+                }
+            });
 
         let entry_list: Vec<Element<'_, Message>> = self
             .filtered_indices
@@ -501,17 +640,26 @@ impl App {
                 let entry = &self.config.entry[entry_idx];
                 let is_selected = view_idx == self.selected_index;
 
-                let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
+                let name_text = text(entry.name())
                     .size(self.colors.font_size)
-                    .color(fg);
+                    .color(if is_selected { bg } else { fg });
+                let detail_text = text(format!(" — {}", entry.display_detail()))
+                    .size(self.colors.font_size)
+                    .color(if is_selected { bg } else { muted });
 
-                let row = container(label)
+                let label_row = row![name_text, detail_text];
+
+                let row = container(label_row)
                     .width(iced::Length::Fill)
                     .padding(8)
                     .style(move |_theme: &iced::Theme| {
                         if is_selected {
                             container::Style {
                                 background: Some(iced::Background::Color(highlight)),
+                                border: iced::Border {
+                                    radius: 4.0.into(),
+                                    ..Default::default()
+                                },
                                 ..Default::default()
                             }
                         } else {
@@ -533,6 +681,11 @@ impl App {
             .height(iced::Length::Fill)
             .style(move |_theme: &iced::Theme| container::Style {
                 background: Some(iced::Background::Color(bg)),
+                border: iced::Border {
+                    color: border_color,
+                    width: 1.0,
+                    ..Default::default()
+                },
                 ..Default::default()
             })
             .into()
@@ -604,14 +757,15 @@ impl App {
         let result = match entry {
             crate::config::Entry::Directory { path, .. } => {
                 let expanded = shellexpand::tilde(path).to_string();
-                std::process::Command::new("alacritty")
-                    .arg("--working-directory")
+                std::process::Command::new("wezterm-gui")
+                    .arg("start")
+                    .arg("--cwd")
                     .arg(&expanded)
                     .spawn()
             }
             crate::config::Entry::Ssh { host, port, .. } => {
-                let mut cmd = std::process::Command::new("alacritty");
-                cmd.arg("-e").arg("ssh").arg(host);
+                let mut cmd = std::process::Command::new("wezterm-gui");
+                cmd.args(["start", "--"]).arg("ssh").arg(host);
                 if let Some(p) = port {
                     cmd.arg("-p").arg(p.to_string());
                 }
@@ -620,7 +774,7 @@ impl App {
         };
 
         if let Err(e) = result {
-            eprintln!("Failed to launch alacritty: {}", e);
+            eprintln!("Failed to launch wezterm: {}", e);
         }
 
         Task::none()

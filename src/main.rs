@@ -122,7 +122,7 @@ fn main() -> iced::Result {
 
 /// Create a simple 16x16 solid-color RGBA icon for the system tray.
 fn create_tray_icon_image(config: &Config) -> Icon {
-    let (r, g, b) = theme::parse_hex_rgb(&config.settings.highlight).unwrap_or((0x89, 0xb4, 0xfa));
+    let (r, g, b) = theme::parse_hex_rgb(&config.settings.highlight).unwrap_or((0xc4, 0xb5, 0xfd));
     let width = 16u32;
     let height = 16u32;
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
