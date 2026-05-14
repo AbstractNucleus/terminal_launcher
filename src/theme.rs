@@ -38,21 +38,21 @@ impl AppColors {
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
             background: parse_hex_color(&settings.background)
-                .unwrap_or(Color::from_rgb8(0x0f, 0x0f, 0x0f)),
+                .unwrap_or(Color::from_rgb8(0x1F, 0x1E, 0x1C)),
             foreground: parse_hex_color(&settings.foreground)
-                .unwrap_or(Color::from_rgb8(0xe8, 0xe8, 0xe8)),
+                .unwrap_or(Color::from_rgb8(0xFA, 0xF9, 0xF5)),
             highlight: parse_hex_color(&settings.highlight)
-                .unwrap_or(Color::from_rgb8(0xc4, 0xb5, 0xfd)),
+                .unwrap_or(Color::from_rgb8(0xD9, 0x77, 0x57)),
             surface: parse_hex_color(&settings.surface)
-                .unwrap_or(Color::from_rgb8(0x2e, 0x2e, 0x2e)),
+                .unwrap_or(Color::from_rgb8(0x26, 0x26, 0x24)),
             muted: parse_hex_color(&settings.muted)
-                .unwrap_or(Color::from_rgb8(0x90, 0x90, 0x90)),
+                .unwrap_or(Color::from_rgb8(0x9C, 0x9A, 0x92)),
             accent: parse_hex_color(&settings.accent)
-                .unwrap_or(Color::from_rgb8(0x7a, 0x9c, 0xc7)),
+                .unwrap_or(Color::from_rgb8(0xE0, 0x8B, 0x6F)),
             border: parse_hex_color(&settings.border)
-                .unwrap_or(Color::from_rgb8(0x2e, 0x2e, 0x2e)),
+                .unwrap_or(Color::from_rgb8(0x30, 0x30, 0x2E)),
             danger: parse_hex_color(&settings.danger)
-                .unwrap_or(Color::from_rgb8(0xe0, 0x6c, 0x75)),
+                .unwrap_or(Color::from_rgb8(0xEE, 0x88, 0x84)),
             font_size: settings.font_size as f32,
         }
     }
@@ -122,8 +122,8 @@ mod tests {
             hotkey: Default::default(),
         };
         let colors = AppColors::from_settings(&settings);
-        assert_eq!(colors.background, Color::from_rgb8(0x0f, 0x0f, 0x0f));
-        assert_eq!(colors.surface, Color::from_rgb8(0x2e, 0x2e, 0x2e));
-        assert_eq!(colors.danger, Color::from_rgb8(0xe0, 0x6c, 0x75));
+        assert_eq!(colors.background, Color::from_rgb8(0x1F, 0x1E, 0x1C));
+        assert_eq!(colors.surface, Color::from_rgb8(0x26, 0x26, 0x24));
+        assert_eq!(colors.danger, Color::from_rgb8(0xEE, 0x88, 0x84));
     }
 }

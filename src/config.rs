@@ -32,14 +32,14 @@ pub struct Settings {
     pub hotkey: HotkeyConfig,
 }
 
-fn default_background() -> String { "#0f0f0f".to_string() }
-fn default_foreground() -> String { "#e8e8e8".to_string() }
-fn default_highlight() -> String { "#c4b5fd".to_string() }
-fn default_surface() -> String { "#2e2e2e".to_string() }
-fn default_muted() -> String { "#909090".to_string() }
-fn default_accent() -> String { "#7a9cc7".to_string() }
-fn default_border() -> String { "#2e2e2e".to_string() }
-fn default_danger() -> String { "#e06c75".to_string() }
+fn default_background() -> String { "#1F1E1C".to_string() }
+fn default_foreground() -> String { "#FAF9F5".to_string() }
+fn default_highlight() -> String { "#D97757".to_string() }
+fn default_surface() -> String { "#262624".to_string() }
+fn default_muted() -> String { "#9C9A92".to_string() }
+fn default_accent() -> String { "#E08B6F".to_string() }
+fn default_border() -> String { "#30302E".to_string() }
+fn default_danger() -> String { "#EE8884".to_string() }
 fn default_font_size() -> u16 { 14 }
 
 impl Default for Settings {
@@ -236,14 +236,14 @@ port = 2222
 [settings]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.settings.background, "#0f0f0f");
-        assert_eq!(config.settings.foreground, "#e8e8e8");
-        assert_eq!(config.settings.highlight, "#c4b5fd");
-        assert_eq!(config.settings.surface, "#2e2e2e");
-        assert_eq!(config.settings.muted, "#909090");
-        assert_eq!(config.settings.accent, "#7a9cc7");
-        assert_eq!(config.settings.border, "#2e2e2e");
-        assert_eq!(config.settings.danger, "#e06c75");
+        assert_eq!(config.settings.background, "#1F1E1C");
+        assert_eq!(config.settings.foreground, "#FAF9F5");
+        assert_eq!(config.settings.highlight, "#D97757");
+        assert_eq!(config.settings.surface, "#262624");
+        assert_eq!(config.settings.muted, "#9C9A92");
+        assert_eq!(config.settings.accent, "#E08B6F");
+        assert_eq!(config.settings.border, "#30302E");
+        assert_eq!(config.settings.danger, "#EE8884");
         assert_eq!(config.settings.font_size, 14);
         assert_eq!(config.settings.hotkey.modifier, "Alt");
         assert_eq!(config.settings.hotkey.key, "Space");
@@ -261,9 +261,9 @@ font_size = 14
 "##;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.settings.background, "#1e1e2e");
-        assert_eq!(config.settings.surface, "#2e2e2e");
-        assert_eq!(config.settings.muted, "#909090");
-        assert_eq!(config.settings.danger, "#e06c75");
+        assert_eq!(config.settings.surface, "#262624");
+        assert_eq!(config.settings.muted, "#9C9A92");
+        assert_eq!(config.settings.danger, "#EE8884");
     }
 
     #[test]

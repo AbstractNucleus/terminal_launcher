@@ -74,14 +74,15 @@ You can open it directly from the tray icon's **Config** menu item.
 
 ```toml
 [settings]
-background  = "#0f0f0f"
-foreground  = "#e8e8e8"
-highlight   = "#c4b5fd"
-surface     = "#2e2e2e"
-muted       = "#909090"
-accent      = "#7a9cc7"
-border      = "#2e2e2e"
-danger      = "#e06c75"
+# Default palette is the Claude design language (warm coal + terracotta).
+background  = "#1F1E1C"
+foreground  = "#FAF9F5"
+highlight   = "#D97757"
+surface     = "#262624"
+muted       = "#9C9A92"
+accent      = "#E08B6F"
+border      = "#30302E"
+danger      = "#EE8884"
 font_size   = 14
 
 [settings.hotkey]
