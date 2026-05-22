@@ -1,4 +1,6 @@
-# terminal-switcher
+# terminal_launcher
+
+> Crate and binary are named `terminal-switcher`; the repo is `terminal_launcher`. Same project.
 
 A fast, keyboard-driven launcher for terminal sessions. Hit a global hotkey, fuzzy-search a list of saved directories and SSH hosts, press Enter, and a new [WezTerm](https://wezterm.org/) window opens at that location.
 
@@ -20,9 +22,10 @@ If you regularly hop between a handful of project directories and remote hosts, 
 
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) (stable, 2021 edition)
 - [WezTerm](https://wezterm.org/install/windows.html) — `wezterm-gui` must be on your `PATH`
 - On Linux: a working desktop environment with system tray support (most do)
+
+For building from source, you'll also need [Rust](https://www.rust-lang.org/tools/install) (stable, 2021 edition).
 
 ## Install
 
@@ -38,7 +41,7 @@ cd terminal_launcher
 cargo build --release
 ```
 
-The binary lands at `target/release/terminal-switcher` (`.exe` on Windows). Copy it somewhere on your `PATH`, or set it up to launch on login.
+The binary lands at `target/release/terminal-switcher` (`.exe` on Windows).
 
 ### Run on startup
 
