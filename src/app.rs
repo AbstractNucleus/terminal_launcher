@@ -39,6 +39,7 @@ pub struct App {
     editor_port: String,
     editor_selected: Option<usize>,
     editor_confirm_delete: bool,
+    first_run: bool,
     config_menu_id: MenuId,
     restart_menu_id: MenuId,
     exit_menu_id: MenuId,
@@ -50,6 +51,7 @@ pub enum Message {
     MoveUp,
     MoveDown,
     Launch,
+    LaunchAt(usize),
     Hide,
     ToggleEditor,
     ToggleVisibility,
@@ -63,6 +65,9 @@ pub enum Message {
     EditorDelete,
     EditorConfirmDelete,
     EditorCancel,
+    EditorNew,
+    KeyEnter,
+    KeyEscape,
     WindowFocusLost,
     Exit,
     OpenConfig,
@@ -96,6 +101,7 @@ impl App {
                 editor_port: String::new(),
                 editor_selected: None,
                 editor_confirm_delete: false,
+                first_run,
                 config_menu_id,
                 restart_menu_id,
                 exit_menu_id,
@@ -112,16 +118,19 @@ impl App {
                 Task::none()
             }
             Message::MoveUp => {
-                if self.selected_index > 0 {
-                    self.selected_index -= 1;
+                if !self.filtered_indices.is_empty() {
+                    self.selected_index = if self.selected_index == 0 {
+                        self.filtered_indices.len() - 1
+                    } else {
+                        self.selected_index - 1
+                    };
                 }
                 Task::none()
             }
             Message::MoveDown => {
-                if !self.filtered_indices.is_empty()
-                    && self.selected_index < self.filtered_indices.len() - 1
-                {
-                    self.selected_index += 1;
+                if !self.filtered_indices.is_empty() {
+                    self.selected_index =
+                        (self.selected_index + 1) % self.filtered_indices.len();
                 }
                 Task::none()
             }
@@ -131,6 +140,14 @@ impl App {
                 self.rebuild_filtered_list();
                 self.visible = false;
                 Task::batch([launch_task, Self::hide_window_task()])
+            }
+            Message::LaunchAt(view_idx) => {
+                if view_idx < self.filtered_indices.len() {
+                    self.selected_index = view_idx;
+                    self.update(Message::Launch)
+                } else {
+                    Task::none()
+                }
             }
             Message::Hide => {
                 self.search_query.clear();
@@ -208,16 +225,32 @@ impl App {
                 Task::none()
             }
             Message::EditorSave => {
+                let name = self.editor_name.trim();
+                let path = self.editor_path.trim();
+                let host = self.editor_host.trim();
+                if name.is_empty() {
+                    return Task::none();
+                }
                 let new_entry = match self.editor_entry_type {
-                    EntryType::Directory => crate::config::Entry::Directory {
-                        name: self.editor_name.clone(),
-                        path: self.editor_path.clone(),
-                    },
-                    EntryType::Ssh => crate::config::Entry::Ssh {
-                        name: self.editor_name.clone(),
-                        host: self.editor_host.clone(),
-                        port: self.editor_port.parse().ok(),
-                    },
+                    EntryType::Directory => {
+                        if path.is_empty() {
+                            return Task::none();
+                        }
+                        crate::config::Entry::Directory {
+                            name: name.to_string(),
+                            path: path.to_string(),
+                        }
+                    }
+                    EntryType::Ssh => {
+                        if host.is_empty() {
+                            return Task::none();
+                        }
+                        crate::config::Entry::Ssh {
+                            name: name.to_string(),
+                            host: host.to_string(),
+                            port: self.editor_port.trim().parse().ok(),
+                        }
+                    }
                 };
                 if let Some(idx) = self.editor_selected {
                     self.config.entry[idx] = new_entry;
@@ -230,6 +263,7 @@ impl App {
                 self.colors = AppColors::from_settings(&self.config.settings);
                 self.clear_editor_fields();
                 self.rebuild_filtered_list();
+                self.first_run = false;
                 self.current_view = View::Launcher;
                 Task::none()
             }
@@ -246,6 +280,7 @@ impl App {
                 }
                 self.clear_editor_fields();
                 self.rebuild_filtered_list();
+                self.first_run = false;
                 Task::none()
             }
             Message::EditorCancel => {
@@ -253,6 +288,20 @@ impl App {
                 self.current_view = View::Launcher;
                 Task::none()
             }
+            Message::EditorNew => {
+                if self.current_view == View::Editor {
+                    self.clear_editor_fields();
+                }
+                Task::none()
+            }
+            Message::KeyEnter => match self.current_view {
+                View::Launcher => self.update(Message::Launch),
+                View::Editor => self.update(Message::EditorSave),
+            },
+            Message::KeyEscape => match self.current_view {
+                View::Launcher => self.update(Message::Hide),
+                View::Editor => self.update(Message::EditorCancel),
+            },
             Message::WindowFocusLost => {
                 let since_shown = self.last_shown.elapsed();
                 if self.current_view == View::Launcher
@@ -463,13 +512,14 @@ impl App {
                 button::Status::Hovered | button::Status::Pressed => highlight,
                 _ => surface,
             };
+            let text_color = match status {
+                button::Status::Hovered | button::Status::Pressed => bg,
+                button::Status::Disabled => muted,
+                _ => fg,
+            };
             button::Style {
                 background: Some(iced::Background::Color(bg_color)),
-                text_color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                    bg
-                } else {
-                    fg
-                },
+                text_color,
                 border: iced::Border {
                     color: border_color,
                     width: 1.0,
@@ -500,9 +550,15 @@ impl App {
             }
         };
 
+        let detail_filled = match self.editor_entry_type {
+            EntryType::Directory => !self.editor_path.trim().is_empty(),
+            EntryType::Ssh => !self.editor_host.trim().is_empty(),
+        };
+        let can_save = !self.editor_name.trim().is_empty() && detail_filled;
+
         let mut button_row = row![
             button("Save")
-                .on_press(Message::EditorSave)
+                .on_press_maybe(can_save.then_some(Message::EditorSave))
                 .padding(8)
                 .style(btn_style),
             button("Cancel")
@@ -513,6 +569,12 @@ impl App {
         .spacing(10);
 
         if self.editor_selected.is_some() {
+            button_row = button_row.push(
+                button("New")
+                    .on_press(Message::EditorNew)
+                    .padding(8)
+                    .style(btn_style),
+            );
             if self.editor_confirm_delete {
                 button_row = button_row.push(
                     button("Confirm Delete")
@@ -572,17 +634,39 @@ impl App {
 
         let entry_list = scrollable(Column::with_children(entries).spacing(4));
 
-        let content = column![
-            title,
-            name_input,
-            type_row,
+        let mut items: Vec<Element<'_, Message>> = Vec::new();
+        if self.first_run {
+            items.push(
+                container(
+                    text("Welcome — these are example entries. Click one to edit, delete them, or add your own.")
+                        .size(13.0)
+                        .color(fg),
+                )
+                .padding(10)
+                .width(iced::Length::Fill)
+                .style(move |_theme: &iced::Theme| container::Style {
+                    background: Some(iced::Background::Color(surface)),
+                    border: iced::Border {
+                        color: highlight,
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                })
+                .into(),
+            );
+        }
+        items.extend([
+            title.into(),
+            name_input.into(),
+            type_row.into(),
             conditional_fields,
-            button_row,
-            text("Entries:").size(16.0).color(muted),
-            entry_list,
-        ]
-        .spacing(10)
-        .padding(20);
+            button_row.into(),
+            text("Entries:").size(16.0).color(muted).into(),
+            entry_list.into(),
+        ]);
+
+        let content = Column::with_children(items).spacing(10).padding(20);
 
         container(content)
             .width(iced::Length::Fill)
@@ -649,32 +733,49 @@ impl App {
 
                 let label_row = row![name_text, detail_text];
 
-                let row = container(label_row)
+                button(label_row)
+                    .on_press(Message::LaunchAt(view_idx))
                     .width(iced::Length::Fill)
                     .padding(8)
-                    .style(move |_theme: &iced::Theme| {
-                        if is_selected {
-                            container::Style {
-                                background: Some(iced::Background::Color(highlight)),
-                                border: iced::Border {
-                                    radius: 4.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }
+                    .style(move |_theme: &iced::Theme, status: button::Status| {
+                        let bg_color = if is_selected {
+                            Some(highlight)
+                        } else if matches!(status, button::Status::Hovered) {
+                            Some(surface)
                         } else {
-                            container::Style::default()
+                            None
+                        };
+                        button::Style {
+                            background: bg_color.map(iced::Background::Color),
+                            text_color: if is_selected { bg } else { fg },
+                            border: iced::Border {
+                                radius: 4.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
                         }
-                    });
-
-                row.into()
+                    })
+                    .into()
             })
             .collect();
 
-        let entries_column =
-            iced::widget::scrollable(iced::widget::Column::with_children(entry_list).spacing(2));
+        let body: Element<'_, Message> = if self.config.entry.is_empty() {
+            container(
+                text("No entries yet. Press Ctrl+E to add some.")
+                    .size(self.colors.font_size)
+                    .color(muted),
+            )
+            .padding(20)
+            .into()
+        } else if self.filtered_indices.is_empty() {
+            container(text("No matches.").size(self.colors.font_size).color(muted))
+                .padding(20)
+                .into()
+        } else {
+            scrollable(Column::with_children(entry_list).spacing(2)).into()
+        };
 
-        let content = column![search, entries_column].spacing(10).padding(20);
+        let content = column![search, body].spacing(10).padding(20);
 
         container(content)
             .width(iced::Length::Fill)
@@ -709,10 +810,13 @@ impl App {
                 iced::Event::Keyboard(KeyEvent::KeyPressed { key, modifiers, .. }) => match key {
                     Key::Named(Named::ArrowUp) => Some(Message::MoveUp),
                     Key::Named(Named::ArrowDown) => Some(Message::MoveDown),
-                    Key::Named(Named::Enter) if !modifiers.alt() => Some(Message::Launch),
-                    Key::Named(Named::Escape) => Some(Message::Hide),
+                    Key::Named(Named::Enter) if !modifiers.alt() => Some(Message::KeyEnter),
+                    Key::Named(Named::Escape) => Some(Message::KeyEscape),
                     Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
                         Some(Message::ToggleEditor)
+                    }
+                    Key::Character(ref c) if modifiers.control() && c.as_str() == "n" => {
+                        Some(Message::EditorNew)
                     }
                     _ => None,
                 },

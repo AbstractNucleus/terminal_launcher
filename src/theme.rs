@@ -28,7 +28,6 @@ pub struct AppColors {
     pub highlight: Color,
     pub surface: Color,
     pub muted: Color,
-    pub accent: Color,
     pub border: Color,
     pub danger: Color,
     pub font_size: f32,
@@ -47,8 +46,6 @@ impl AppColors {
                 .unwrap_or(Color::from_rgb8(0x26, 0x26, 0x24)),
             muted: parse_hex_color(&settings.muted)
                 .unwrap_or(Color::from_rgb8(0x9C, 0x9A, 0x92)),
-            accent: parse_hex_color(&settings.accent)
-                .unwrap_or(Color::from_rgb8(0xE0, 0x8B, 0x6F)),
             border: parse_hex_color(&settings.border)
                 .unwrap_or(Color::from_rgb8(0x30, 0x30, 0x2E)),
             danger: parse_hex_color(&settings.danger)
@@ -101,7 +98,6 @@ mod tests {
         assert_eq!(colors.highlight, Color::from_rgb8(255, 0, 0));
         assert_eq!(colors.surface, Color::from_rgb8(0x22, 0x22, 0x22));
         assert_eq!(colors.muted, Color::from_rgb8(0x88, 0x88, 0x88));
-        assert_eq!(colors.accent, Color::from_rgb8(0, 0, 255));
         assert_eq!(colors.border, Color::from_rgb8(0x33, 0x33, 0x33));
         assert_eq!(colors.danger, Color::from_rgb8(255, 0, 0));
         assert_eq!(colors.font_size, 16.0);

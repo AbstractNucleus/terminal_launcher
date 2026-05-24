@@ -97,9 +97,13 @@ fn main() -> iced::Result {
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
     tray_menu.append(&exit_item).unwrap();
 
+    let tooltip = format!(
+        "Terminal Switcher — {}+{}",
+        config.settings.hotkey.modifier, config.settings.hotkey.key
+    );
     let _tray_icon = TrayIconBuilder::new()
         .with_menu(Box::new(tray_menu))
-        .with_tooltip("Terminal Switcher")
+        .with_tooltip(tooltip)
         .with_icon(icon)
         .with_menu_on_left_click(false)
         .build()
@@ -120,18 +124,31 @@ fn main() -> iced::Result {
     .run()
 }
 
-/// Create a simple 16x16 solid-color RGBA icon for the system tray.
+/// Draw a 16x16 chevron ">" in the highlight color on transparent background.
 fn create_tray_icon_image(config: &Config) -> Icon {
     let (r, g, b) = theme::parse_hex_rgb(&config.settings.highlight).unwrap_or((0xc4, 0xb5, 0xfd));
-    let width = 16u32;
-    let height = 16u32;
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for _ in 0..(width * height) {
-        rgba.push(r);
-        rgba.push(g);
-        rgba.push(b);
-        rgba.push(255);
+    let w = 16usize;
+    let h = 16usize;
+    let mut rgba = vec![0u8; w * h * 4];
+
+    let mut paint = |x: usize, y: usize| {
+        let i = (y * w + x) * 4;
+        rgba[i] = r;
+        rgba[i + 1] = g;
+        rgba[i + 2] = b;
+        rgba[i + 3] = 255;
+    };
+    for y in 2..=8usize {
+        let x = y + 2;
+        paint(x, y);
+        paint(x + 1, y);
     }
-    Icon::from_rgba(rgba, width, height).expect("Failed to create tray icon image")
+    for y in 8..=14usize {
+        let x = 18 - y;
+        paint(x, y);
+        paint(x + 1, y);
+    }
+
+    Icon::from_rgba(rgba, w as u32, h as u32).expect("Failed to create tray icon image")
 }
 
