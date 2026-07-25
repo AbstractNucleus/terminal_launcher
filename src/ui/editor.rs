@@ -1,9 +1,15 @@
-use iced::widget::{button, column, container, radio, row, scrollable, text, text_input, Column};
-use iced::{Background, Border, Element, Length};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Column};
+use iced::{Background, Border, Color, Element, Length};
 
 use crate::app::{App, EntryType, Message};
-use crate::theme::Metrics;
-use crate::ui::{field_style, overlay_scrollbar, panel, INTER};
+use crate::theme::{AppColors, Metrics};
+use crate::ui::{
+    field_style, hairline, hint_bar, overlay_scrollbar, panel, row_item, section_header,
+    INTER_SEMIBOLD,
+};
+
+const BUTTON_HEIGHT: f32 = 30.0;
+const BUTTON_WIDTH: f32 = 80.0;
 
 pub fn editor_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
@@ -19,10 +25,21 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
 
     let input_style = field_style(colors, bg);
 
-    let title = text("Config Editor")
-        .size(20.0)
-        .font(INTER)
-        .color(fg);
+    let header = container(
+        text("Config Editor")
+            .size(metrics.input_font_size)
+            .font(INTER_SEMIBOLD)
+            .color(fg),
+    )
+    .width(Length::Fill)
+    .height(metrics.input_row_height)
+    .padding(iced::Padding {
+        top: 0.0,
+        right: 16.0,
+        bottom: 0.0,
+        left: 16.0,
+    })
+    .align_y(iced::Alignment::Center);
 
     let name_input = text_input("Entry name", &app.editor_name)
         .on_input(Message::EditorNameChanged)
@@ -30,48 +47,6 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
         .size(metrics.name_font_size)
         .id("editor-name")
         .style(input_style);
-
-    let type_row = row![
-        radio(
-            "Directory",
-            EntryType::Directory,
-            Some(app.editor_entry_type),
-            Message::EditorTypeChanged,
-        )
-        .style(move |_theme: &iced::Theme, status| {
-            radio::Style {
-                background: Background::Color(bg),
-                dot_color: accent,
-                border_width: 1.0,
-                border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
-                    accent
-                } else {
-                    muted
-                },
-                text_color: Some(fg),
-            }
-        }),
-        radio(
-            "SSH",
-            EntryType::Ssh,
-            Some(app.editor_entry_type),
-            Message::EditorTypeChanged,
-        )
-        .style(move |_theme: &iced::Theme, status| {
-            radio::Style {
-                background: Background::Color(bg),
-                dot_color: accent,
-                border_width: 1.0,
-                border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
-                    accent
-                } else {
-                    muted
-                },
-                text_color: Some(fg),
-            }
-        }),
-    ]
-    .spacing(20);
 
     let conditional_fields: Element<'_, Message> = match app.editor_entry_type {
         EntryType::Directory => text_input("Path (e.g. ~/projects)", &app.editor_path)
@@ -99,17 +74,22 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
         .into(),
     };
 
-    let btn_style = move |_theme: &iced::Theme, status: button::Status| {
+    let label = move |content: &'static str| {
+        container(text(content).size(metrics.detail_font_size))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center)
+    };
+
+    let secondary_style = move |_theme: &iced::Theme, status: button::Status| {
         let bg_color = match status {
             button::Status::Hovered | button::Status::Pressed => highlight,
             _ => surface,
         };
         button::Style {
             background: Some(Background::Color(bg_color)),
-            text_color: match status {
-                button::Status::Disabled => muted,
-                _ => fg,
-            },
+            text_color: fg,
             border: Border {
                 color: border_color,
                 width: 1.0,
@@ -119,24 +99,69 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
         }
     };
 
-    let danger_btn_style = move |_theme: &iced::Theme, status: button::Status| {
-        let bg_color = match status {
-            button::Status::Hovered | button::Status::Pressed => danger,
-            _ => surface,
-        };
-        button::Style {
-            background: Some(Background::Color(bg_color)),
-            text_color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                fg
-            } else {
-                danger
-            },
+    let primary_style = move |_theme: &iced::Theme, status: button::Status| match status {
+        button::Status::Disabled => button::Style {
+            background: Some(Background::Color(surface)),
+            text_color: muted,
             border: Border {
-                color: danger,
+                color: border_color,
                 width: 1.0,
                 radius: 6.0.into(),
             },
             ..Default::default()
+        },
+        button::Status::Hovered | button::Status::Pressed => button::Style {
+            background: Some(Background::Color(Color {
+                r: (accent.r + 0.06).min(1.0),
+                g: (accent.g + 0.06).min(1.0),
+                b: (accent.b + 0.06).min(1.0),
+                a: 1.0,
+            })),
+            text_color: bg,
+            border: Border {
+                radius: 6.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        _ => button::Style {
+            background: Some(Background::Color(accent)),
+            text_color: bg,
+            border: Border {
+                radius: 6.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    };
+
+    // Armed state swaps label and fill only — bounds stay fixed so the row
+    // never shifts.
+    let armed = app.editor_confirm_delete;
+    let danger_style = move |_theme: &iced::Theme, status: button::Status| {
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        if armed || hovered {
+            button::Style {
+                background: Some(Background::Color(danger)),
+                text_color: bg,
+                border: Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            }
+        } else {
+            button::Style {
+                background: Some(Background::Color(surface)),
+                text_color: danger,
+                border: Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            }
         }
     };
 
@@ -147,99 +172,56 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
     let can_save = !app.editor_name.trim().is_empty() && detail_filled;
 
     let mut button_row = row![
-        button("Save")
+        button(label("Save"))
             .on_press_maybe(can_save.then_some(Message::EditorSave))
-            .padding(8)
-            .style(btn_style),
-        button("Cancel")
+            .width(BUTTON_WIDTH)
+            .height(BUTTON_HEIGHT)
+            .padding(0)
+            .style(primary_style),
+        button(label("Cancel"))
             .on_press(Message::EditorCancel)
-            .padding(8)
-            .style(btn_style),
+            .width(BUTTON_WIDTH)
+            .height(BUTTON_HEIGHT)
+            .padding(0)
+            .style(secondary_style),
     ]
-    .spacing(10);
+    .spacing(8);
 
     if app.editor_selected.is_some() {
         button_row = button_row.push(
-            button("New")
+            button(label("New"))
                 .on_press(Message::EditorNew)
-                .padding(8)
-                .style(btn_style),
+                .width(BUTTON_WIDTH)
+                .height(BUTTON_HEIGHT)
+                .padding(0)
+                .style(secondary_style),
         );
-        if app.editor_confirm_delete {
-            button_row = button_row.push(
-                button("Confirm Delete")
-                    .on_press(Message::EditorConfirmDelete)
-                    .padding(8)
-                    .style(danger_btn_style),
-            );
-        } else {
-            button_row = button_row.push(
-                button("Delete")
-                    .on_press(Message::EditorDelete)
-                    .padding(8)
-                    .style(danger_btn_style),
-            );
-        }
+        button_row = button_row.push(
+            button(label(if armed { "Sure?" } else { "Delete" }))
+                .on_press(if armed {
+                    Message::EditorConfirmDelete
+                } else {
+                    Message::EditorDelete
+                })
+                .width(BUTTON_WIDTH)
+                .height(BUTTON_HEIGHT)
+                .padding(0)
+                .style(danger_style),
+        );
     }
 
-    let entries: Vec<Element<'_, Message>> = app
-        .config
-        .entry
-        .iter()
-        .enumerate()
-        .map(|(idx, entry)| {
-            let is_selected = app.editor_selected == Some(idx);
-            let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
-                .size(metrics.name_font_size)
-                .color(fg);
-
-            button(container(label).width(Length::Fill).padding(4))
-                .on_press(Message::EditorSelectEntry(idx))
-                .padding(4)
-                .style(move |_theme: &iced::Theme, _status| {
-                    if is_selected {
-                        button::Style {
-                            background: Some(Background::Color(highlight)),
-                            text_color: fg,
-                            border: Border {
-                                color: border_color,
-                                width: 1.0,
-                                radius: 6.0.into(),
-                            },
-                            ..Default::default()
-                        }
-                    } else {
-                        button::Style {
-                            background: Some(Background::Color(bg)),
-                            text_color: fg,
-                            border: Border {
-                                radius: 6.0.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        }
-                    }
-                })
-                .width(Length::Fill)
-                .into()
-        })
-        .collect();
-
-    let entry_list = scrollable(Column::with_children(entries).spacing(4))
-        .style(overlay_scrollbar(colors));
-
-    let mut items: Vec<Element<'_, Message>> = Vec::new();
+    let mut form_items: Vec<Element<'_, Message>> = Vec::new();
     if app.first_run {
-        items.push(
+        form_items.push(
             container(
                 text("Welcome — these are example entries. Click one to edit, delete them, or add your own.")
-                    .size(13.0)
+                    .size(metrics.detail_font_size)
                     .color(fg),
             )
             .padding(10)
             .width(Length::Fill)
             .style(move |_theme: &iced::Theme| container::Style {
-                background: Some(Background::Color(surface)),
+                background: Some(Background::Color(bg)),
                 border: Border {
                     color: accent,
                     width: 1.0,
@@ -250,17 +232,138 @@ pub fn editor_view(app: &App) -> Element<'_, Message> {
             .into(),
         );
     }
-    items.extend([
-        title.into(),
+    form_items.extend([
         name_input.into(),
-        type_row.into(),
+        type_toggle(app.editor_entry_type, colors, metrics),
         conditional_fields,
         button_row.into(),
-        text("Entries:").size(16.0).color(muted).into(),
-        entry_list.into(),
     ]);
 
-    let content = Column::with_children(items).spacing(10).padding(20);
+    let form = container(Column::with_children(form_items).spacing(10))
+        .width(Length::Fill)
+        .padding(16);
 
-    panel(content, colors, &metrics)
+    let entries: Vec<Element<'_, Message>> = app
+        .config
+        .entry
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            row_item(
+                entry.icon(),
+                entry.name(),
+                &entry.display_detail(),
+                &[],
+                &[],
+                app.editor_selected == Some(idx),
+                Message::EditorSelectEntry(idx),
+                colors,
+                &metrics,
+            )
+        })
+        .collect();
+
+    let entries_header = container(section_header("Entries", metrics, colors)).padding(
+        iced::Padding {
+            top: 0.0,
+            right: metrics.row_inset,
+            bottom: 0.0,
+            left: metrics.row_inset,
+        },
+    );
+
+    let entry_list = container(
+        scrollable(Column::with_children(entries).spacing(0))
+            .height(Length::Fill)
+            .style(overlay_scrollbar(colors)),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .padding(iced::Padding {
+        top: 2.0,
+        right: metrics.row_inset,
+        bottom: metrics.list_padding,
+        left: metrics.row_inset,
+    });
+
+    let hints = hint_bar(
+        colors,
+        &metrics,
+        &[
+            ("↵", "Save"),
+            ("Tab", "Next Field"),
+            ("Ctrl+N", "New"),
+            ("Esc", "Back"),
+        ],
+    );
+
+    let content = column![
+        header,
+        hairline(colors),
+        form,
+        entries_header,
+        entry_list,
+        hints
+    ]
+    .spacing(0);
+
+    panel(content, colors, &metrics, Length::Fill, None)
+}
+
+/// Segmented Directory | SSH toggle.
+fn type_toggle<'a>(
+    selected: EntryType,
+    colors: &AppColors,
+    metrics: Metrics,
+) -> Element<'a, Message> {
+    let bg = colors.background;
+    let fg = colors.foreground;
+    let muted = colors.muted;
+    let border_color = colors.border;
+    let highlight = colors.highlight;
+
+    let segment = move |label: &'static str, value: EntryType| {
+        let is_selected = value == selected;
+        button(
+            container(text(label).size(metrics.detail_font_size))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(0)
+        .on_press(Message::EditorTypeChanged(value))
+        .style(move |_theme: &iced::Theme, _status: button::Status| button::Style {
+            background: Some(Background::Color(if is_selected { highlight } else { bg })),
+            text_color: if is_selected { fg } else { muted },
+            border: Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    };
+
+    container(
+        row![
+            segment("Directory", EntryType::Directory),
+            segment("SSH", EntryType::Ssh),
+        ]
+        .spacing(2),
+    )
+    .width(220.0)
+    .height(BUTTON_HEIGHT)
+    .padding(2)
+    .style(move |_theme: &iced::Theme| container::Style {
+        background: Some(Background::Color(bg)),
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
 }
