@@ -7,7 +7,7 @@ use iced::{Element, Point, Size, Subscription, Task};
 use tray_icon::menu::{MenuEvent, MenuId};
 
 use crate::config::Config;
-use crate::theme::{self, AppColors, Metrics};
+use crate::theme::{self, AppColors};
 use crate::ui;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +41,6 @@ pub struct App {
     pub(crate) editor_selected: Option<usize>,
     pub(crate) editor_confirm_delete: bool,
     pub(crate) first_run: bool,
-    last_height: f32,
     config_menu_id: MenuId,
     restart_menu_id: MenuId,
     exit_menu_id: MenuId,
@@ -91,14 +90,7 @@ impl App {
             View::Launcher
         };
 
-        let headers = if first_run { 0 } else { 2 };
-        let initial_height = if first_run {
-            theme::editor_height()
-        } else {
-            theme::panel_height(config.entry.len(), headers)
-        };
-
-        let mut app = Self {
+        let app = Self {
             config,
             colors,
             search_query: String::new(),
@@ -117,18 +109,12 @@ impl App {
             editor_selected: None,
             editor_confirm_delete: false,
             first_run,
-            last_height: initial_height,
             config_menu_id,
             restart_menu_id,
             exit_menu_id,
         };
 
-        let boot = if first_run {
-            app.resize_to(theme::editor_height())
-        } else {
-            Task::none()
-        };
-        (app, boot)
+        (app, Task::none())
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -185,20 +171,12 @@ impl App {
                 }
             }
             Message::ToggleEditor => {
-                let task = match self.current_view {
-                    View::Launcher => {
-                        self.current_view = View::Editor;
-                        self.clear_editor_fields();
-                        self.resize_to(theme::editor_height())
-                    }
-                    View::Editor => {
-                        self.current_view = View::Launcher;
-                        self.clear_editor_fields();
-                        let height = self.launcher_height();
-                        self.resize_to(height)
-                    }
+                self.current_view = match self.current_view {
+                    View::Launcher => View::Editor,
+                    View::Editor => View::Launcher,
                 };
-                task
+                self.clear_editor_fields();
+                Task::none()
             }
             Message::EditorNameChanged(v) => {
                 self.editor_name = v;
@@ -282,8 +260,7 @@ impl App {
                 let rebuild = self.rebuild_filtered_list();
                 self.first_run = false;
                 self.current_view = View::Launcher;
-                let resize = self.resize_to(self.launcher_height());
-                Task::batch([rebuild, resize])
+                rebuild
             }
             Message::EditorDelete => {
                 self.editor_confirm_delete = true;
@@ -304,7 +281,7 @@ impl App {
             Message::EditorCancel => {
                 self.clear_editor_fields();
                 self.current_view = View::Launcher;
-                self.resize_to(self.launcher_height())
+                Task::none()
             }
             Message::EditorNew => {
                 if self.current_view == View::Editor {
@@ -569,20 +546,6 @@ impl App {
         self.editor_confirm_delete = false;
     }
 
-    fn launcher_height(&self) -> f32 {
-        let headers = if self.search_query.is_empty() { 2 } else { 0 };
-        theme::panel_height(self.filtered_indices.len(), headers)
-    }
-
-    fn resize_to(&mut self, height: f32) -> Task<Message> {
-        if (height - self.last_height).abs() < f32::EPSILON {
-            return Task::none();
-        }
-        self.last_height = height;
-        let width = theme::window_width();
-        window::latest().and_then(move |id| window::resize(id, Size::new(width, height)))
-    }
-
     fn rebuild_filtered_list(&mut self) -> Task<Message> {
         let names: Vec<String> = self
             .config
@@ -613,8 +576,7 @@ impl App {
         }
 
         self.selected_index = 0;
-        let height = self.launcher_height();
-        self.resize_to(height)
+        operation::snap_to(Id::new("launcher-scroll"), RelativeOffset::START)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -646,10 +608,9 @@ impl App {
         Subscription::batch([hotkey_sub, event_sub])
     }
 
-    pub fn window_settings(entry_count: usize) -> window::Settings {
-        let m = Metrics::default();
-        let height = theme::panel_height(entry_count, 2);
+    pub fn window_settings() -> window::Settings {
         let width = theme::window_width();
+        let height = theme::window_height();
 
         let mut settings = window::Settings {
             size: Size::new(width, height),
@@ -660,16 +621,11 @@ impl App {
                 )
             }),
             decorations: false,
-            resizable: true,
+            resizable: false,
             transparent: true,
             level: window::Level::AlwaysOnTop,
-            min_size: Some(Size::new(width, theme::panel_height(0, 0))),
-            max_size: Some(Size::new(width, theme::editor_height().max(height))),
             ..Default::default()
         };
-
-        // Silence unused warning if Metrics fields change
-        let _ = m.panel_width;
 
         #[cfg(target_os = "windows")]
         {

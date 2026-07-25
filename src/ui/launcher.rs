@@ -4,7 +4,9 @@ use iced::{Element, Length};
 use crate::app::{App, Message};
 use crate::fuzzy::split_match_positions;
 use crate::theme::Metrics;
-use crate::ui::{field_style, hint_bar, overlay_scrollbar, panel, row_item};
+use crate::ui::{
+    bare_input_style, hairline, hint_bar, overlay_scrollbar, panel, row_item, section_header,
+};
 
 pub fn launcher_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
@@ -21,7 +23,7 @@ pub fn launcher_view(app: &App) -> Element<'_, Message> {
         })
         .size(metrics.input_font_size)
         .id("search-input")
-        .style(field_style(colors, colors.surface));
+        .style(bare_input_style(colors));
 
     let search = container(search)
         .width(Length::Fill)
@@ -29,58 +31,80 @@ pub fn launcher_view(app: &App) -> Element<'_, Message> {
         .align_y(iced::Alignment::Center);
 
     let body: Element<'_, Message> = if app.config.entry.is_empty() {
-        container(
-            text("No entries yet. Press Ctrl+E to add some.")
-                .size(metrics.name_font_size)
-                .color(colors.muted),
-        )
-        .padding(20)
-        .into()
+        empty_state("No entries yet. Press Ctrl+E to add some.", app, metrics)
     } else if app.filtered_indices.is_empty() {
-        container(
-            text("No matches.")
-                .size(metrics.name_font_size)
-                .color(colors.muted),
-        )
-        .padding(20)
-        .into()
-    } else if show_headers {
-        browse_list(app, metrics)
+        empty_state("No matches.", app, metrics)
     } else {
-        flat_list(app, metrics)
+        // The window never resizes; size the list viewport to its content,
+        // capped at max_visible_rows.
+        let header_count = if show_headers {
+            let dirs = app
+                .filtered_indices
+                .iter()
+                .filter(|&&i| app.config.entry[i].is_directory())
+                .count();
+            let has_dirs = dirs > 0;
+            let has_sshs = dirs < app.filtered_indices.len();
+            has_dirs as usize + has_sshs as usize
+        } else {
+            0
+        };
+        let rows = app.filtered_indices.len().min(metrics.max_visible_rows);
+        let list_height = rows as f32 * metrics.entry_row_height
+            + header_count as f32 * metrics.section_header_height;
+
+        let list = if show_headers {
+            browse_list(app, metrics)
+        } else {
+            flat_list(app, metrics)
+        };
+        container(list)
+            .width(Length::Fill)
+            .height(list_height + 2.0 * metrics.list_padding)
+            .padding(iced::Padding {
+                top: metrics.list_padding,
+                right: metrics.row_inset,
+                bottom: metrics.list_padding,
+                left: metrics.row_inset,
+            })
+            .into()
     };
 
-    let content = column![search, body, hint_bar(colors, &metrics)]
-        .spacing(0)
-        .padding(iced::Padding {
-            top: metrics.panel_side_padding,
-            right: metrics.panel_side_padding,
-            bottom: 0.0,
-            left: metrics.panel_side_padding,
-        });
+    let hints = hint_bar(
+        colors,
+        &metrics,
+        &[
+            ("⇅", "Select"),
+            ("↵", "Open"),
+            ("Ctrl+E", "Edit"),
+            ("Esc", "Close"),
+        ],
+    );
+    let content = column![search, hairline(colors), body, hints].spacing(0);
 
-    panel(content, colors, &metrics)
+    panel(
+        content,
+        colors,
+        &metrics,
+        Length::Shrink,
+        Some(Message::WindowFocusLost),
+    )
 }
 
-fn section_header<'a>(
-    label: &'a str,
-    metrics: Metrics,
-    muted: iced::Color,
-) -> Element<'a, Message> {
+fn empty_state<'a>(message: &'a str, app: &'a App, metrics: Metrics) -> Element<'a, Message> {
+    let surface = app.colors.surface;
     container(
-        text(label)
-            .size(metrics.header_font_size)
-            .color(muted),
+        text(message)
+            .size(metrics.name_font_size)
+            .color(app.colors.muted),
     )
     .width(Length::Fill)
-    .height(metrics.section_header_height)
-    .padding(iced::Padding {
-        top: 0.0,
-        right: metrics.row_inset,
-        bottom: 0.0,
-        left: metrics.row_inset,
+    .height(3.0 * metrics.entry_row_height)
+    .padding(16)
+    .style(move |_theme: &iced::Theme| iced::widget::container::Style {
+        background: Some(iced::Background::Color(surface)),
+        ..Default::default()
     })
-    .align_y(iced::Alignment::Center)
     .into()
 }
 
@@ -105,14 +129,14 @@ fn browse_list(app: &App, metrics: Metrics) -> Element<'_, Message> {
         .collect();
 
     if !dirs.is_empty() {
-        children.push(section_header("Directories", metrics, colors.muted));
+        children.push(section_header("Directories", metrics, colors));
         for (view_idx, entry_idx) in dirs {
             children.push(entry_row(app, metrics, view_idx, entry_idx));
         }
     }
 
     if !sshs.is_empty() {
-        children.push(section_header("SSH Hosts", metrics, colors.muted));
+        children.push(section_header("SSH Hosts", metrics, colors));
         for (view_idx, entry_idx) in sshs {
             children.push(entry_row(app, metrics, view_idx, entry_idx));
         }

@@ -64,7 +64,7 @@ pub struct Metrics {
     pub panel_width: f32,
     pub shadow_inset: f32,
     pub panel_radius: f32,
-    pub panel_side_padding: f32,
+    pub list_padding: f32,
     pub input_row_height: f32,
     pub section_header_height: f32,
     pub entry_row_height: f32,
@@ -84,15 +84,15 @@ impl Metrics {
         let font_size = font_size as f32;
         Self {
             panel_width: 600.0,
-            shadow_inset: 16.0,
+            shadow_inset: 24.0,
             panel_radius: 12.0,
-            panel_side_padding: 8.0,
+            list_padding: 6.0,
             input_row_height: 44.0,
             section_header_height: 24.0,
             entry_row_height: 30.0,
             row_radius: 6.0,
             row_inset: 8.0,
-            hint_bar_height: 24.0,
+            hint_bar_height: 30.0,
             max_visible_rows: 9,
             input_font_size: font_size + 1.0,
             name_font_size: font_size,
@@ -109,17 +109,20 @@ impl Default for Metrics {
     }
 }
 
-/// Content-sized launcher panel height, including the transparent shadow margin.
-pub fn panel_height(visible_rows: usize, headers: usize) -> f32 {
+/// Fixed window height: fits the tallest launcher list and the editor.
+/// The window never resizes (resizing thrashes the software renderer's
+/// damage tracking); the launcher panel shrinks to content and the rest
+/// of the window stays transparent.
+pub fn window_height() -> f32 {
     let m = Metrics::default();
-    let rows = visible_rows.min(m.max_visible_rows) as f32;
-    let headers = headers as f32;
-    m.input_row_height
-        + rows * m.entry_row_height
-        + headers * m.section_header_height
+    let launcher_max = m.input_row_height
+        + 1.0 // hairline under the input
+        + m.max_visible_rows as f32 * m.entry_row_height
+        + 2.0 * m.section_header_height
+        + 2.0 * m.list_padding
         + m.hint_bar_height
-        + 2.0 * m.panel_side_padding
-        + 2.0 * m.shadow_inset
+        + 2.0 * m.shadow_inset;
+    launcher_max.max(editor_height())
 }
 
 /// Fixed editor window height (content + shadow margin).
@@ -203,17 +206,9 @@ mod tests {
     }
 
     #[test]
-    fn panel_height_clamps_and_counts_headers() {
-        let base_no_rows = panel_height(0, 0);
-        let one = panel_height(1, 0);
-        let nine = panel_height(9, 0);
-        let fifty = panel_height(50, 0);
-        assert!((one - base_no_rows - 30.0).abs() < f32::EPSILON);
-        assert!((nine - base_no_rows - 9.0 * 30.0).abs() < f32::EPSILON);
-        assert_eq!(nine, fifty);
-
-        let with_headers = panel_height(0, 2);
-        assert!((with_headers - base_no_rows - 2.0 * 24.0).abs() < f32::EPSILON);
+    fn window_height_fits_max_launcher_and_editor() {
+        assert!(window_height() >= editor_height());
+        assert_eq!(window_height(), 560.0);
     }
 
     #[test]

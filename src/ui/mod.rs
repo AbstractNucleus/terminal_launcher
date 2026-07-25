@@ -1,3 +1,9 @@
+//! The tiny-skia backend repaints only the changed primitives inside a damage
+//! region, clearing it to the (transparent) window background first. Any
+//! widget that can redraw on its own — rows, the search input, scrollbars,
+//! headers — must therefore carry an explicit opaque background, or its
+//! redraw punches a transparent hole in the panel.
+
 mod editor;
 mod launcher;
 
@@ -7,8 +13,10 @@ pub use launcher::launcher_view;
 use iced::font::{self, Font};
 use iced::widget::scrollable::{self, AutoScroll, Rail, Scroller};
 use iced::widget::text::Span;
-use iced::widget::{button, column, container, rich_text, row, rule, span, text, text_input, Space};
-use iced::{Background, Border, Color, Element, Length, Shadow, Vector};
+use iced::widget::{
+    button, column, container, mouse_area, rich_text, row, rule, span, text, text_input, Space,
+};
+use iced::{Background, Border, Color, Element, Length, Shadow};
 
 use crate::app::Message;
 use crate::theme::{AppColors, Metrics};
@@ -23,18 +31,24 @@ pub const INTER_SEMIBOLD: Font = Font {
 pub const CODICON: Font = Font::with_name("codicon");
 
 /// Transparent outer margin + rounded shadowed panel.
+///
+/// The window has a fixed size; `height` sizes the framed panel within it
+/// (`Shrink` for content-sized, `Fill` to cover the window). With `on_dismiss`,
+/// clicks on the transparent area below the panel emit that message.
 pub fn panel<'a>(
     content: impl Into<Element<'a, Message>>,
     colors: &AppColors,
     metrics: &Metrics,
+    height: Length,
+    on_dismiss: Option<Message>,
 ) -> Element<'a, Message> {
     let surface = colors.surface;
     let border_color = colors.border;
     let radius = metrics.panel_radius;
 
-    let inner = container(content.into())
+    let framed = container(content.into())
         .width(Length::Fill)
-        .height(Length::Fill)
+        .height(height)
         .style(move |_theme: &iced::Theme| container::Style {
             background: Some(Background::Color(surface)),
             border: Border {
@@ -42,13 +56,22 @@ pub fn panel<'a>(
                 width: 1.0,
                 radius: radius.into(),
             },
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                offset: Vector::new(0.0, 8.0),
-                blur_radius: 32.0,
-            },
+            // No renderer-drawn shadow: tiny-skia re-blends translucent
+            // primitives on partial redraws, visibly darkening the panel
+            // with every interaction.
             ..Default::default()
         });
+
+    let inner: Element<'a, Message> = match on_dismiss {
+        Some(message) => column![
+            framed,
+            mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                .on_press(message),
+        ]
+        .height(Length::Fill)
+        .into(),
+        None => framed.into(),
+    };
 
     container(inner)
         .width(Length::Fill)
@@ -78,7 +101,7 @@ pub fn field_style(
             background: Background::Color(well),
             border: Border {
                 color: if focused { accent } else { border_color },
-                width: if focused { 1.0 } else { 0.0 },
+                width: 1.0,
                 radius: 6.0.into(),
             },
             icon: muted,
@@ -87,6 +110,70 @@ pub fn field_style(
             selection: highlight,
         }
     }
+}
+
+/// Muted section label with a hairline running to the right.
+pub fn section_header<'a>(
+    label: &'a str,
+    metrics: Metrics,
+    colors: &AppColors,
+) -> Element<'a, Message> {
+    let label_text = text(label)
+        .size(metrics.header_font_size)
+        .color(colors.muted);
+    let surface = colors.surface;
+
+    container(
+        row![label_text, hairline(colors)]
+            .spacing(8.0)
+            .align_y(iced::Alignment::Center),
+    )
+    .width(Length::Fill)
+    .height(metrics.section_header_height)
+    .padding(iced::Padding {
+        top: 0.0,
+        right: metrics.row_inset,
+        bottom: 0.0,
+        left: metrics.row_inset,
+    })
+    .align_y(iced::Alignment::Center)
+    .style(move |_theme: &iced::Theme| container::Style {
+        background: Some(Background::Color(surface)),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Borderless launcher search style: bare text on the panel surface, no box.
+pub fn bare_input_style(
+    colors: &AppColors,
+) -> impl Fn(&iced::Theme, text_input::Status) -> text_input::Style + Copy {
+    let fg = colors.foreground;
+    let muted = colors.muted;
+    let accent = colors.accent;
+    let surface = colors.surface;
+
+    move |_theme: &iced::Theme, _status: text_input::Status| text_input::Style {
+        background: Background::Color(surface),
+        border: Border::default(),
+        icon: muted,
+        placeholder: muted,
+        value: fg,
+        selection: Color { a: 0.35, ..accent },
+    }
+}
+
+/// 1px separator in the border color.
+pub fn hairline<'a>(colors: &AppColors) -> Element<'a, Message> {
+    let border = colors.border;
+    rule::horizontal(1)
+        .style(move |_theme: &iced::Theme| rule::Style {
+            color: border,
+            radius: 0.0.into(),
+            fill_mode: rule::FillMode::Full,
+            snap: true,
+        })
+        .into()
 }
 
 fn make_span(
@@ -151,7 +238,7 @@ pub fn row_item(
     let muted = colors.muted;
     let accent = colors.accent;
     let highlight = colors.highlight;
-    let border = colors.border;
+    let surface = colors.surface;
     let radius = metrics.row_radius;
     let row_height = metrics.entry_row_height;
     let row_inset = metrics.row_inset;
@@ -173,8 +260,14 @@ pub fn row_item(
         metrics.detail_font_size,
     );
 
-    let label = row![icon_el, Space::new().width(8.0), name_el, detail_el]
-        .align_y(iced::Alignment::Center);
+    // Wrap in a Fill container: button lays its content out top-aligned,
+    // so the row must center itself within the fixed-height button.
+    let label = container(
+        row![icon_el, Space::new().width(8.0), name_el, detail_el]
+            .align_y(iced::Alignment::Center),
+    )
+    .height(Length::Fill)
+    .align_y(iced::Alignment::Center);
 
     button(label)
         .on_press(on_press)
@@ -192,15 +285,14 @@ pub fn row_item(
                     background: Some(Background::Color(highlight)),
                     text_color: fg,
                     border: Border {
-                        color: border,
-                        width: 1.0,
                         radius: radius.into(),
+                        ..Default::default()
                     },
                     ..Default::default()
                 }
             } else {
                 button::Style {
-                    background: None,
+                    background: Some(Background::Color(surface)),
                     text_color: fg,
                     border: Border {
                         radius: radius.into(),
@@ -213,46 +305,95 @@ pub fn row_item(
         .into()
 }
 
-/// Footer hint bar with a top hairline.
-pub fn hint_bar<'a>(colors: &AppColors, metrics: &Metrics) -> Element<'a, Message> {
+/// Footer hint bar with a top hairline and keycap-styled hints.
+/// All hints sit left except the last, which is right-aligned.
+pub fn hint_bar<'a>(
+    colors: &AppColors,
+    metrics: &Metrics,
+    hints: &[(&'a str, &'a str)],
+) -> Element<'a, Message> {
     let muted = colors.muted;
-    let border = colors.border;
+    let chip_bg = colors.highlight;
+    let chip_border = colors.border;
+    let size = metrics.hint_font_size;
 
-    let hairline = rule::horizontal(1).style(move |_theme: &iced::Theme| rule::Style {
-        color: border,
-        radius: 0.0.into(),
-        fill_mode: rule::FillMode::Full,
-        snap: true,
-    });
+    let keycap = move |key: &'a str| {
+        container(text(key).size(size).color(muted))
+            .padding(iced::Padding {
+                top: 1.0,
+                right: 5.0,
+                bottom: 2.0,
+                left: 5.0,
+            })
+            .style(move |_theme: &iced::Theme| container::Style {
+                background: Some(Background::Color(chip_bg)),
+                border: Border {
+                    color: chip_border,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            })
+    };
+    let hint = move |key: &'a str, label: &'a str| {
+        row![keycap(key), text(label).size(size).color(muted)]
+            .spacing(6.0)
+            .align_y(iced::Alignment::Center)
+    };
 
-    let hints = text("⇅ Select    ↵ Open    ^E Edit    esc Close")
-        .size(metrics.hint_font_size)
-        .color(muted);
+    let mut bar = row![].spacing(14.0).align_y(iced::Alignment::Center);
+    if let Some(((last_key, last_label), rest)) = hints.split_last() {
+        for (key, label) in rest {
+            bar = bar.push(hint(key, label));
+        }
+        bar = bar.push(Space::new().width(Length::Fill));
+        bar = bar.push(hint(last_key, last_label));
+    }
 
-    let bar = container(hints)
+    let surface = colors.surface;
+    let bar = container(bar)
         .width(Length::Fill)
         .height(metrics.hint_bar_height - 1.0)
         .padding(iced::Padding {
             top: 0.0,
-            right: metrics.row_inset,
+            right: 16.0,
             bottom: 0.0,
-            left: metrics.row_inset,
+            left: 16.0,
         })
-        .align_y(iced::Alignment::Center);
+        .align_y(iced::Alignment::Center)
+        .style(move |_theme: &iced::Theme| container::Style {
+            background: Some(Background::Color(surface)),
+            ..Default::default()
+        });
 
-    column![hairline, bar].into()
+    column![hairline(colors), bar].into()
 }
 
 pub fn overlay_scrollbar(
     colors: &AppColors,
 ) -> impl Fn(&iced::Theme, scrollable::Status) -> scrollable::Style + Copy {
     let muted = colors.muted;
-    move |_theme: &iced::Theme, _status: scrollable::Status| {
+    let surface = colors.surface;
+    move |_theme: &iced::Theme, status: scrollable::Status| {
+        // Overlay behavior: only show the scroller while the list is hovered or dragged.
+        let show = match status {
+            scrollable::Status::Hovered {
+                is_vertical_scrollbar_disabled,
+                ..
+            } => !is_vertical_scrollbar_disabled,
+            scrollable::Status::Dragged { .. } => true,
+            scrollable::Status::Active { .. } => false,
+        };
+        let scroller_color = if show {
+            Color { a: 0.4, ..muted }
+        } else {
+            Color::TRANSPARENT
+        };
         let rail = Rail {
-            background: None,
+            background: Some(Background::Color(surface)),
             border: Border::default(),
             scroller: Scroller {
-                background: Background::Color(muted),
+                background: Background::Color(scroller_color),
                 border: Border {
                     radius: 4.0.into(),
                     ..Default::default()
@@ -260,7 +401,10 @@ pub fn overlay_scrollbar(
             },
         };
         scrollable::Style {
-            container: container::Style::default(),
+            container: container::Style {
+                background: Some(Background::Color(surface)),
+                ..Default::default()
+            },
             vertical_rail: rail,
             horizontal_rail: rail,
             gap: None,

@@ -76,6 +76,14 @@ fn parse_key(s: &str) -> Code {
 }
 
 fn main() -> iced::Result {
+    // Default to the software renderer: wgpu's DX12 surfaces on Windows only
+    // support opaque composition, which turns the transparent shadow margin
+    // into a solid rectangle. The tiny-skia path composites per-pixel alpha
+    // correctly, and CPU rendering is plenty for a panel this size.
+    if std::env::var_os("ICED_BACKEND").is_none() {
+        std::env::set_var("ICED_BACKEND", "tiny-skia");
+    }
+
     let (config, first_run) = Config::load_or_create_default();
 
     let hotkey_manager = GlobalHotKeyManager::new().expect("Failed to create hotkey manager");
@@ -113,7 +121,6 @@ fn main() -> iced::Result {
     let config_menu_id = config_item.id().clone();
     let restart_menu_id = restart_item.id().clone();
     let exit_menu_id = exit_item.id().clone();
-    let entry_count = config.entry.len();
 
     iced::application(
         move || {
@@ -133,15 +140,21 @@ fn main() -> iced::Result {
     .font(include_bytes!("../assets/Inter-SemiBold.ttf").as_slice())
     .font(include_bytes!("../assets/codicons.ttf").as_slice())
     .default_font(Font::with_name("Inter"))
+    // Transparent window background so the shadow margin shows the desktop;
+    // without this, iced fills the window with the theme's opaque base color.
+    .style(|app: &app::App, _theme| iced::theme::Style {
+        background_color: iced::Color::TRANSPARENT,
+        text_color: app.colors.foreground,
+    })
     .transparent(true)
-    .window(app::App::window_settings(entry_count))
+    .window(app::App::window_settings())
     .subscription(app::App::subscription)
     .run()
 }
 
-/// Draw a 16x16 chevron ">" in the highlight color on transparent background.
+/// Draw a 16x16 chevron ">" in the foreground color on transparent background.
 fn create_tray_icon_image(config: &Config) -> Icon {
-    let (r, g, b) = theme::parse_hex_rgb(&config.settings.highlight).unwrap_or((0xc4, 0xb5, 0xfd));
+    let (r, g, b) = theme::parse_hex_rgb(&config.settings.foreground).unwrap_or((0xc4, 0xb5, 0xfd));
     let w = 16usize;
     let h = 16usize;
     let mut rgba = vec![0u8; w * h * 4];
