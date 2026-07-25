@@ -61,6 +61,8 @@ The binary lands at `target/release/terminal-switcher` (`.exe` on Windows).
 | -------------- | ---------------------------------------- |
 | `Alt+Space`    | Show/hide the launcher (configurable)    |
 | `↑` / `↓`      | Move selection                           |
+| `Ctrl+N` / `Ctrl+P` | Move selection (down / up)          |
+| `Home` / `End` | Jump to first / last entry               |
 | `Enter`        | Launch selected entry                    |
 | `Escape`       | Hide the launcher                        |
 | `Ctrl+E`       | Toggle the entry editor                  |
@@ -77,15 +79,15 @@ You can open it directly from the tray icon's **Config** menu item.
 
 ```toml
 [settings]
-# Default palette is the Claude design language (warm coal + terracotta).
-background  = "#1F1E1C"
-foreground  = "#FAF9F5"
-highlight   = "#D97757"
-surface     = "#262624"
-muted       = "#9C9A92"
-accent      = "#E08B6F"
-border      = "#30302E"
-danger      = "#EE8884"
+# Default palette matches Cursor's near-black greys.
+background  = "#141414"
+foreground  = "#D4D4D4"
+highlight   = "#2F2F2F"
+surface     = "#212121"
+muted       = "#858585"
+accent      = "#D9A05B"
+border      = "#333333"
+danger      = "#F14C4C"
 font_size   = 14
 
 [settings.hotkey]
@@ -103,6 +105,8 @@ name = "Prod Box"
 host = "user@prod.example.com"
 port = 22              # optional
 ```
+
+Existing installs keep whatever colours are already in `config.toml` — saving from the editor writes the current palette back. To pick up the new Cursor defaults, delete `config.toml` and re-add your entries.
 
 After editing the file directly, restart the app from the tray menu (or hotkey changes won't apply).
 

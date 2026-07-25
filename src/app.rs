@@ -1,14 +1,14 @@
-use iced::keyboard::Event as KeyEvent;
-use iced::widget::{
-    button, column, container, radio, row, scrollable, text, text_input, Column,
-};
+use iced::keyboard::{key::Named, Event as KeyEvent, Key, Modifiers};
+use iced::widget::operation::{self, RelativeOffset};
+use iced::widget::Id;
 use iced::window;
-use iced::{Element, Size, Subscription, Task};
+use iced::{Element, Point, Size, Subscription, Task};
 
 use tray_icon::menu::{MenuEvent, MenuId};
 
 use crate::config::Config;
-use crate::theme::AppColors;
+use crate::theme::{self, AppColors, Metrics};
+use crate::ui;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum View {
@@ -23,23 +23,25 @@ pub enum EntryType {
 }
 
 pub struct App {
-    config: Config,
-    colors: AppColors,
-    search_query: String,
+    pub(crate) config: Config,
+    pub(crate) colors: AppColors,
+    pub(crate) search_query: String,
     visible: bool,
     last_shown: std::time::Instant,
     fuzzy_matcher: crate::fuzzy::FuzzyMatcher,
-    filtered_indices: Vec<usize>,
-    selected_index: usize,
-    current_view: View,
-    editor_name: String,
-    editor_entry_type: EntryType,
-    editor_path: String,
-    editor_host: String,
-    editor_port: String,
-    editor_selected: Option<usize>,
-    editor_confirm_delete: bool,
-    first_run: bool,
+    pub(crate) filtered_indices: Vec<usize>,
+    pub(crate) match_positions: Vec<Vec<u32>>,
+    pub(crate) selected_index: usize,
+    pub(crate) current_view: View,
+    pub(crate) editor_name: String,
+    pub(crate) editor_entry_type: EntryType,
+    pub(crate) editor_path: String,
+    pub(crate) editor_host: String,
+    pub(crate) editor_port: String,
+    pub(crate) editor_selected: Option<usize>,
+    pub(crate) editor_confirm_delete: bool,
+    pub(crate) first_run: bool,
+    last_height: f32,
     config_menu_id: MenuId,
     restart_menu_id: MenuId,
     exit_menu_id: MenuId,
@@ -48,10 +50,9 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub enum Message {
     SearchChanged(String),
-    MoveUp,
-    MoveDown,
     Launch,
     LaunchAt(usize),
+    HoverAt(usize),
     Hide,
     ToggleEditor,
     ToggleVisibility,
@@ -66,8 +67,7 @@ pub enum Message {
     EditorConfirmDelete,
     EditorCancel,
     EditorNew,
-    KeyEnter,
-    KeyEscape,
+    KeyPressed { key: Key, modifiers: Modifiers },
     WindowFocusLost,
     Exit,
     OpenConfig,
@@ -75,71 +75,74 @@ pub enum Message {
 }
 
 impl App {
-    pub fn new(config: Config, first_run: bool, config_menu_id: MenuId, restart_menu_id: MenuId, exit_menu_id: MenuId) -> (Self, Task<Message>) {
+    pub fn new(
+        config: Config,
+        first_run: bool,
+        config_menu_id: MenuId,
+        restart_menu_id: MenuId,
+        exit_menu_id: MenuId,
+    ) -> (Self, Task<Message>) {
         let colors = AppColors::from_settings(&config.settings);
         let filtered_indices: Vec<usize> = (0..config.entry.len()).collect();
+        let match_positions = vec![Vec::new(); filtered_indices.len()];
         let current_view = if first_run {
             View::Editor
         } else {
             View::Launcher
         };
-        (
-            Self {
-                config,
-                colors,
-                search_query: String::new(),
-                visible: true,
-                last_shown: std::time::Instant::now(),
-                fuzzy_matcher: crate::fuzzy::FuzzyMatcher::new(),
-                filtered_indices,
-                selected_index: 0,
-                current_view,
-                editor_name: String::new(),
-                editor_entry_type: EntryType::Directory,
-                editor_path: String::new(),
-                editor_host: String::new(),
-                editor_port: String::new(),
-                editor_selected: None,
-                editor_confirm_delete: false,
-                first_run,
-                config_menu_id,
-                restart_menu_id,
-                exit_menu_id,
-            },
-            Task::none(),
-        )
+
+        let headers = if first_run { 0 } else { 2 };
+        let initial_height = if first_run {
+            theme::editor_height()
+        } else {
+            theme::panel_height(config.entry.len(), headers)
+        };
+
+        let mut app = Self {
+            config,
+            colors,
+            search_query: String::new(),
+            visible: true,
+            last_shown: std::time::Instant::now(),
+            fuzzy_matcher: crate::fuzzy::FuzzyMatcher::new(),
+            filtered_indices,
+            match_positions,
+            selected_index: 0,
+            current_view,
+            editor_name: String::new(),
+            editor_entry_type: EntryType::Directory,
+            editor_path: String::new(),
+            editor_host: String::new(),
+            editor_port: String::new(),
+            editor_selected: None,
+            editor_confirm_delete: false,
+            first_run,
+            last_height: initial_height,
+            config_menu_id,
+            restart_menu_id,
+            exit_menu_id,
+        };
+
+        let boot = if first_run {
+            app.resize_to(theme::editor_height())
+        } else {
+            Task::none()
+        };
+        (app, boot)
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SearchChanged(query) => {
                 self.search_query = query;
-                self.rebuild_filtered_list();
-                Task::none()
-            }
-            Message::MoveUp => {
-                if !self.filtered_indices.is_empty() {
-                    self.selected_index = if self.selected_index == 0 {
-                        self.filtered_indices.len() - 1
-                    } else {
-                        self.selected_index - 1
-                    };
-                }
-                Task::none()
-            }
-            Message::MoveDown => {
-                if !self.filtered_indices.is_empty() {
-                    self.selected_index =
-                        (self.selected_index + 1) % self.filtered_indices.len();
-                }
-                Task::none()
+                self.rebuild_filtered_list()
             }
             Message::Launch => {
                 let launch_task = self.launch_selected();
                 self.search_query.clear();
-                self.rebuild_filtered_list();
+                let rebuild = self.rebuild_filtered_list();
                 self.visible = false;
-                Task::batch([launch_task, Self::hide_window_task()])
+                Task::batch([launch_task, rebuild, Self::hide_window_task()])
             }
             Message::LaunchAt(view_idx) => {
                 if view_idx < self.filtered_indices.len() {
@@ -149,11 +152,17 @@ impl App {
                     Task::none()
                 }
             }
+            Message::HoverAt(view_idx) => {
+                if view_idx < self.filtered_indices.len() {
+                    self.selected_index = view_idx;
+                }
+                Task::none()
+            }
             Message::Hide => {
                 self.search_query.clear();
-                self.rebuild_filtered_list();
+                let rebuild = self.rebuild_filtered_list();
                 self.visible = false;
-                Self::hide_window_task()
+                Task::batch([rebuild, Self::hide_window_task()])
             }
             Message::ToggleVisibility => {
                 if self.visible {
@@ -171,17 +180,25 @@ impl App {
                     });
                     Task::batch([
                         window_task,
-                        iced::widget::operation::focus("search-input"),
+                        operation::focus(Id::new("search-input")),
                     ])
                 }
             }
             Message::ToggleEditor => {
-                self.current_view = match self.current_view {
-                    View::Launcher => View::Editor,
-                    View::Editor => View::Launcher,
+                let task = match self.current_view {
+                    View::Launcher => {
+                        self.current_view = View::Editor;
+                        self.clear_editor_fields();
+                        self.resize_to(theme::editor_height())
+                    }
+                    View::Editor => {
+                        self.current_view = View::Launcher;
+                        self.clear_editor_fields();
+                        let height = self.launcher_height();
+                        self.resize_to(height)
+                    }
                 };
-                self.clear_editor_fields();
-                Task::none()
+                task
             }
             Message::EditorNameChanged(v) => {
                 self.editor_name = v;
@@ -262,10 +279,11 @@ impl App {
                 }
                 self.colors = AppColors::from_settings(&self.config.settings);
                 self.clear_editor_fields();
-                self.rebuild_filtered_list();
+                let rebuild = self.rebuild_filtered_list();
                 self.first_run = false;
                 self.current_view = View::Launcher;
-                Task::none()
+                let resize = self.resize_to(self.launcher_height());
+                Task::batch([rebuild, resize])
             }
             Message::EditorDelete => {
                 self.editor_confirm_delete = true;
@@ -279,14 +297,14 @@ impl App {
                     }
                 }
                 self.clear_editor_fields();
-                self.rebuild_filtered_list();
+                let rebuild = self.rebuild_filtered_list();
                 self.first_run = false;
-                Task::none()
+                rebuild
             }
             Message::EditorCancel => {
                 self.clear_editor_fields();
                 self.current_view = View::Launcher;
-                Task::none()
+                self.resize_to(self.launcher_height())
             }
             Message::EditorNew => {
                 if self.current_view == View::Editor {
@@ -294,14 +312,7 @@ impl App {
                 }
                 Task::none()
             }
-            Message::KeyEnter => match self.current_view {
-                View::Launcher => self.update(Message::Launch),
-                View::Editor => self.update(Message::EditorSave),
-            },
-            Message::KeyEscape => match self.current_view {
-                View::Launcher => self.update(Message::Hide),
-                View::Editor => self.update(Message::EditorCancel),
-            },
+            Message::KeyPressed { key, modifiers } => self.handle_key(key, modifiers),
             Message::WindowFocusLost => {
                 let since_shown = self.last_shown.elapsed();
                 if self.current_view == View::Launcher
@@ -310,9 +321,9 @@ impl App {
                 {
                     self.search_query.clear();
                     self.selected_index = 0;
-                    self.rebuild_filtered_list();
+                    let rebuild = self.rebuild_filtered_list();
                     self.visible = false;
-                    Self::hide_window_task()
+                    Task::batch([rebuild, Self::hide_window_task()])
                 } else {
                     Task::none()
                 }
@@ -368,6 +379,177 @@ impl App {
         }
     }
 
+    fn handle_key(&mut self, key: Key, modifiers: Modifiers) -> Task<Message> {
+        match self.current_view {
+            View::Launcher => self.handle_launcher_key(key, modifiers),
+            View::Editor => self.handle_editor_key(key, modifiers),
+        }
+    }
+
+    fn handle_launcher_key(&mut self, key: Key, modifiers: Modifiers) -> Task<Message> {
+        match key {
+            Key::Named(Named::ArrowUp) => self.move_selection(-1),
+            Key::Named(Named::ArrowDown) => self.move_selection(1),
+            Key::Named(Named::Home) => {
+                if !self.filtered_indices.is_empty() {
+                    self.selected_index = 0;
+                    self.snap_selection()
+                } else {
+                    Task::none()
+                }
+            }
+            Key::Named(Named::End) => {
+                if !self.filtered_indices.is_empty() {
+                    self.selected_index = self.filtered_indices.len() - 1;
+                    self.snap_selection()
+                } else {
+                    Task::none()
+                }
+            }
+            Key::Named(Named::Enter) if !modifiers.alt() => self.update(Message::Launch),
+            Key::Named(Named::Escape) => self.update(Message::Hide),
+            Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
+                self.update(Message::ToggleEditor)
+            }
+            Key::Character(ref c) if modifiers.control() && c.as_str() == "n" => {
+                self.move_selection(1)
+            }
+            Key::Character(ref c) if modifiers.control() && c.as_str() == "p" => {
+                self.move_selection(-1)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn handle_editor_key(&mut self, key: Key, modifiers: Modifiers) -> Task<Message> {
+        match key {
+            Key::Named(Named::Tab) if modifiers.shift() => operation::focus_previous::<Message>(),
+            Key::Named(Named::Tab) => operation::focus_next::<Message>(),
+            Key::Named(Named::Enter) if !modifiers.alt() => {
+                if self.editor_form_valid() {
+                    self.update(Message::EditorSave)
+                } else {
+                    Task::none()
+                }
+            }
+            Key::Named(Named::Escape) => {
+                if self.editor_confirm_delete {
+                    self.editor_confirm_delete = false;
+                    Task::none()
+                } else {
+                    self.update(Message::EditorCancel)
+                }
+            }
+            Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
+                self.update(Message::ToggleEditor)
+            }
+            Key::Character(ref c) if modifiers.control() && c.as_str() == "n" => {
+                self.update(Message::EditorNew)
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn editor_form_valid(&self) -> bool {
+        if self.editor_name.trim().is_empty() {
+            return false;
+        }
+        match self.editor_entry_type {
+            EntryType::Directory => !self.editor_path.trim().is_empty(),
+            EntryType::Ssh => !self.editor_host.trim().is_empty(),
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) -> Task<Message> {
+        let len = self.filtered_indices.len();
+        if len == 0 {
+            return Task::none();
+        }
+        let len_i = len as isize;
+        let next = (self.selected_index as isize + delta).rem_euclid(len_i) as usize;
+        self.selected_index = next;
+        self.snap_selection()
+    }
+
+    fn snap_selection(&self) -> Task<Message> {
+        let len = self.filtered_indices.len();
+        if len <= 1 {
+            return Task::none();
+        }
+
+        let rendered_len = self.rendered_row_count();
+        if rendered_len <= 1 {
+            return Task::none();
+        }
+
+        let rendered_index = self.rendered_index_of_selection();
+        let y = rendered_index as f32 / (rendered_len - 1) as f32;
+        operation::snap_to(Id::new("launcher-scroll"), RelativeOffset { x: 0.0, y })
+    }
+
+    /// Number of rendered rows in the launcher list (entries + headers in browse mode).
+    fn rendered_row_count(&self) -> usize {
+        let entries = self.filtered_indices.len();
+        if !self.search_query.is_empty() {
+            return entries;
+        }
+        let has_dir = self
+            .filtered_indices
+            .iter()
+            .any(|&i| self.config.entry[i].is_directory());
+        let has_ssh = self
+            .filtered_indices
+            .iter()
+            .any(|&i| !self.config.entry[i].is_directory());
+        entries + usize::from(has_dir) + usize::from(has_ssh)
+    }
+
+    fn rendered_index_of_selection(&self) -> usize {
+        if !self.search_query.is_empty() {
+            return self.selected_index;
+        }
+
+        // Browse mode: directories under one header, then SSH under another.
+        let mut rendered = 0usize;
+
+        let dirs: Vec<usize> = self
+            .filtered_indices
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, entry_idx)| self.config.entry[*entry_idx].is_directory())
+            .map(|(view_idx, _)| view_idx)
+            .collect();
+        let sshs: Vec<usize> = self
+            .filtered_indices
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, entry_idx)| !self.config.entry[*entry_idx].is_directory())
+            .map(|(view_idx, _)| view_idx)
+            .collect();
+
+        if !dirs.is_empty() {
+            rendered += 1; // header
+            for view_idx in dirs {
+                if view_idx == self.selected_index {
+                    return rendered;
+                }
+                rendered += 1;
+            }
+        }
+        if !sshs.is_empty() {
+            rendered += 1; // header
+            for view_idx in sshs {
+                if view_idx == self.selected_index {
+                    return rendered;
+                }
+                rendered += 1;
+            }
+        }
+        rendered.saturating_sub(1)
+    }
+
     fn hide_window_task() -> Task<Message> {
         window::latest().and_then(|id| {
             Task::batch([
@@ -387,409 +569,59 @@ impl App {
         self.editor_confirm_delete = false;
     }
 
-    fn rebuild_filtered_list(&mut self) {
+    fn launcher_height(&self) -> f32 {
+        let headers = if self.search_query.is_empty() { 2 } else { 0 };
+        theme::panel_height(self.filtered_indices.len(), headers)
+    }
+
+    fn resize_to(&mut self, height: f32) -> Task<Message> {
+        if (height - self.last_height).abs() < f32::EPSILON {
+            return Task::none();
+        }
+        self.last_height = height;
+        let width = theme::window_width();
+        window::latest().and_then(move |id| window::resize(id, Size::new(width, height)))
+    }
+
+    fn rebuild_filtered_list(&mut self) -> Task<Message> {
         let names: Vec<String> = self
             .config
             .entry
             .iter()
             .map(|e| format!("{} {}", e.name(), e.display_detail()))
             .collect();
-        self.filtered_indices = self.fuzzy_matcher.filter(&self.search_query, &names);
+
+        let results = self.fuzzy_matcher.filter(&self.search_query, &names);
+
+        if self.search_query.is_empty() {
+            // Browse mode: directories first, then SSH hosts (headers in the view).
+            let mut dirs = Vec::new();
+            let mut sshs = Vec::new();
+            for (idx, _) in &results {
+                if self.config.entry[*idx].is_directory() {
+                    dirs.push((*idx, Vec::new()));
+                } else {
+                    sshs.push((*idx, Vec::new()));
+                }
+            }
+            dirs.append(&mut sshs);
+            self.filtered_indices = dirs.iter().map(|(i, _)| *i).collect();
+            self.match_positions = dirs.into_iter().map(|(_, p)| p).collect();
+        } else {
+            self.filtered_indices = results.iter().map(|(i, _)| *i).collect();
+            self.match_positions = results.into_iter().map(|(_, p)| p).collect();
+        }
+
         self.selected_index = 0;
+        let height = self.launcher_height();
+        self.resize_to(height)
     }
 
     pub fn view(&self) -> Element<'_, Message> {
         match self.current_view {
-            View::Launcher => self.launcher_view(),
-            View::Editor => self.editor_view(),
+            View::Launcher => ui::launcher_view(self),
+            View::Editor => ui::editor_view(self),
         }
-    }
-
-    fn editor_view(&self) -> Element<'_, Message> {
-        let bg = self.colors.background;
-        let highlight = self.colors.highlight;
-        let fg = self.colors.foreground;
-        let surface = self.colors.surface;
-        let muted = self.colors.muted;
-        let border_color = self.colors.border;
-        let danger = self.colors.danger;
-
-        let input_style = move |_theme: &iced::Theme, status: text_input::Status| {
-            let border = iced::Border {
-                color: if matches!(status, text_input::Status::Focused { .. }) {
-                    highlight
-                } else {
-                    border_color
-                },
-                width: 1.0,
-                radius: 4.0.into(),
-            };
-            text_input::Style {
-                background: iced::Background::Color(surface),
-                border,
-                icon: muted,
-                placeholder: muted,
-                value: fg,
-                selection: highlight,
-            }
-        };
-
-        let title = text("Config Editor").size(20.0).color(fg);
-
-        let name_input = text_input("Entry name", &self.editor_name)
-            .on_input(Message::EditorNameChanged)
-            .padding(8)
-            .size(14.0)
-            .style(input_style);
-
-        let type_row = row![
-            radio(
-                "Directory",
-                EntryType::Directory,
-                Some(self.editor_entry_type),
-                Message::EditorTypeChanged,
-            )
-            .style(move |_theme: &iced::Theme, status| {
-                radio::Style {
-                    background: iced::Background::Color(bg),
-                    dot_color: highlight,
-                    border_width: 1.0,
-                    border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
-                        highlight
-                    } else {
-                        muted
-                    },
-                    text_color: Some(fg),
-                }
-            }),
-            radio(
-                "SSH",
-                EntryType::Ssh,
-                Some(self.editor_entry_type),
-                Message::EditorTypeChanged,
-            )
-            .style(move |_theme: &iced::Theme, status| {
-                radio::Style {
-                    background: iced::Background::Color(bg),
-                    dot_color: highlight,
-                    border_width: 1.0,
-                    border_color: if matches!(status, radio::Status::Active { is_selected: true }) {
-                        highlight
-                    } else {
-                        muted
-                    },
-                    text_color: Some(fg),
-                }
-            }),
-        ]
-        .spacing(20);
-
-        let conditional_fields: Element<'_, Message> = match self.editor_entry_type {
-            EntryType::Directory => text_input("Path (e.g. ~/projects)", &self.editor_path)
-                .on_input(Message::EditorPathChanged)
-                .padding(8)
-                .size(14.0)
-                .style(input_style)
-                .into(),
-            EntryType::Ssh => column![
-                text_input("Host (e.g. user@host.com)", &self.editor_host)
-                    .on_input(Message::EditorHostChanged)
-                    .padding(8)
-                    .size(14.0)
-                    .style(input_style),
-                text_input("Port (optional)", &self.editor_port)
-                    .on_input(Message::EditorPortChanged)
-                    .padding(8)
-                    .size(14.0)
-                    .style(input_style),
-            ]
-            .spacing(8)
-            .into(),
-        };
-
-        let btn_style = move |_theme: &iced::Theme, status: button::Status| {
-            let bg_color = match status {
-                button::Status::Hovered | button::Status::Pressed => highlight,
-                _ => surface,
-            };
-            let text_color = match status {
-                button::Status::Hovered | button::Status::Pressed => bg,
-                button::Status::Disabled => muted,
-                _ => fg,
-            };
-            button::Style {
-                background: Some(iced::Background::Color(bg_color)),
-                text_color,
-                border: iced::Border {
-                    color: border_color,
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
-                ..Default::default()
-            }
-        };
-
-        let danger_btn_style = move |_theme: &iced::Theme, status: button::Status| {
-            let bg_color = match status {
-                button::Status::Hovered | button::Status::Pressed => danger,
-                _ => surface,
-            };
-            button::Style {
-                background: Some(iced::Background::Color(bg_color)),
-                text_color: if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                    fg
-                } else {
-                    danger
-                },
-                border: iced::Border {
-                    color: danger,
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
-                ..Default::default()
-            }
-        };
-
-        let detail_filled = match self.editor_entry_type {
-            EntryType::Directory => !self.editor_path.trim().is_empty(),
-            EntryType::Ssh => !self.editor_host.trim().is_empty(),
-        };
-        let can_save = !self.editor_name.trim().is_empty() && detail_filled;
-
-        let mut button_row = row![
-            button("Save")
-                .on_press_maybe(can_save.then_some(Message::EditorSave))
-                .padding(8)
-                .style(btn_style),
-            button("Cancel")
-                .on_press(Message::EditorCancel)
-                .padding(8)
-                .style(btn_style),
-        ]
-        .spacing(10);
-
-        if self.editor_selected.is_some() {
-            button_row = button_row.push(
-                button("New")
-                    .on_press(Message::EditorNew)
-                    .padding(8)
-                    .style(btn_style),
-            );
-            if self.editor_confirm_delete {
-                button_row = button_row.push(
-                    button("Confirm Delete")
-                        .on_press(Message::EditorConfirmDelete)
-                        .padding(8)
-                        .style(danger_btn_style),
-                );
-            } else {
-                button_row = button_row.push(
-                    button("Delete")
-                        .on_press(Message::EditorDelete)
-                        .padding(8)
-                        .style(danger_btn_style),
-                );
-            }
-        }
-
-        let entries: Vec<Element<'_, Message>> = self
-            .config
-            .entry
-            .iter()
-            .enumerate()
-            .map(|(idx, entry)| {
-                let is_selected = self.editor_selected == Some(idx);
-                let label = text(format!("{} — {}", entry.name(), entry.display_detail()))
-                    .size(14.0)
-                    .color(if is_selected { bg } else { fg });
-
-                button(
-                    container(label).width(iced::Length::Fill).padding(4),
-                )
-                .on_press(Message::EditorSelectEntry(idx))
-                .padding(4)
-                .style(move |_theme: &iced::Theme, _status| {
-                    if is_selected {
-                        button::Style {
-                            background: Some(iced::Background::Color(highlight)),
-                            text_color: bg,
-                            border: iced::Border {
-                                radius: 4.0.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        }
-                    } else {
-                        button::Style {
-                            background: Some(iced::Background::Color(bg)),
-                            text_color: fg,
-                            ..Default::default()
-                        }
-                    }
-                })
-                .width(iced::Length::Fill)
-                .into()
-            })
-            .collect();
-
-        let entry_list = scrollable(Column::with_children(entries).spacing(4));
-
-        let mut items: Vec<Element<'_, Message>> = Vec::new();
-        if self.first_run {
-            items.push(
-                container(
-                    text("Welcome — these are example entries. Click one to edit, delete them, or add your own.")
-                        .size(13.0)
-                        .color(fg),
-                )
-                .padding(10)
-                .width(iced::Length::Fill)
-                .style(move |_theme: &iced::Theme| container::Style {
-                    background: Some(iced::Background::Color(surface)),
-                    border: iced::Border {
-                        color: highlight,
-                        width: 1.0,
-                        radius: 4.0.into(),
-                    },
-                    ..Default::default()
-                })
-                .into(),
-            );
-        }
-        items.extend([
-            title.into(),
-            name_input.into(),
-            type_row.into(),
-            conditional_fields,
-            button_row.into(),
-            text("Entries:").size(16.0).color(muted).into(),
-            entry_list.into(),
-        ]);
-
-        let content = Column::with_children(items).spacing(10).padding(20);
-
-        container(content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .style(move |_theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(bg)),
-                border: iced::Border {
-                    color: border_color,
-                    width: 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .into()
-    }
-
-    fn launcher_view(&self) -> Element<'_, Message> {
-        let bg = self.colors.background;
-        let highlight = self.colors.highlight;
-        let fg = self.colors.foreground;
-        let surface = self.colors.surface;
-        let muted = self.colors.muted;
-        let border_color = self.colors.border;
-
-        let search = text_input("Search...", &self.search_query)
-            .on_input(Message::SearchChanged)
-            .padding(10)
-            .size(self.colors.font_size)
-            .id("search-input")
-            .style(move |_theme: &iced::Theme, status| {
-                let border = iced::Border {
-                    color: if matches!(status, text_input::Status::Focused { .. }) {
-                        highlight
-                    } else {
-                        border_color
-                    },
-                    width: 1.0,
-                    radius: 4.0.into(),
-                };
-                text_input::Style {
-                    background: iced::Background::Color(surface),
-                    border,
-                    icon: muted,
-                    placeholder: muted,
-                    value: fg,
-                    selection: highlight,
-                }
-            });
-
-        let entry_list: Vec<Element<'_, Message>> = self
-            .filtered_indices
-            .iter()
-            .enumerate()
-            .map(|(view_idx, &entry_idx)| {
-                let entry = &self.config.entry[entry_idx];
-                let is_selected = view_idx == self.selected_index;
-
-                let name_text = text(entry.name())
-                    .size(self.colors.font_size)
-                    .color(if is_selected { bg } else { fg });
-                let detail_text = text(format!(" — {}", entry.display_detail()))
-                    .size(self.colors.font_size)
-                    .color(if is_selected { bg } else { muted });
-
-                let label_row = row![name_text, detail_text];
-
-                button(label_row)
-                    .on_press(Message::LaunchAt(view_idx))
-                    .width(iced::Length::Fill)
-                    .padding(8)
-                    .style(move |_theme: &iced::Theme, status: button::Status| {
-                        let bg_color = if is_selected {
-                            Some(highlight)
-                        } else if matches!(status, button::Status::Hovered) {
-                            Some(surface)
-                        } else {
-                            None
-                        };
-                        button::Style {
-                            background: bg_color.map(iced::Background::Color),
-                            text_color: if is_selected { bg } else { fg },
-                            border: iced::Border {
-                                radius: 4.0.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        }
-                    })
-                    .into()
-            })
-            .collect();
-
-        let body: Element<'_, Message> = if self.config.entry.is_empty() {
-            container(
-                text("No entries yet. Press Ctrl+E to add some.")
-                    .size(self.colors.font_size)
-                    .color(muted),
-            )
-            .padding(20)
-            .into()
-        } else if self.filtered_indices.is_empty() {
-            container(text("No matches.").size(self.colors.font_size).color(muted))
-                .padding(20)
-                .into()
-        } else {
-            scrollable(Column::with_children(entry_list).spacing(2)).into()
-        };
-
-        let content = column![search, body].spacing(10).padding(20);
-
-        container(content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .style(move |_theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(bg)),
-                border: iced::Border {
-                    color: border_color,
-                    width: 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .into()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -798,44 +630,46 @@ impl App {
         let exit_menu_id = self.exit_menu_id.clone();
         let hotkey_sub = Subscription::run_with(
             (config_menu_id, restart_menu_id, exit_menu_id),
-            |(config_id, restart_id, exit_id)| hotkey_listener(config_id.clone(), restart_id.clone(), exit_id.clone()),
+            |(config_id, restart_id, exit_id)| {
+                hotkey_listener(config_id.clone(), restart_id.clone(), exit_id.clone())
+            },
         );
 
-        let event_sub = iced::event::listen_with(|event, _status, _id| {
-            use iced::keyboard::key::Named;
-            use iced::keyboard::Key;
-
-            match event {
-                iced::Event::Window(window::Event::Unfocused) => Some(Message::WindowFocusLost),
-                iced::Event::Keyboard(KeyEvent::KeyPressed { key, modifiers, .. }) => match key {
-                    Key::Named(Named::ArrowUp) => Some(Message::MoveUp),
-                    Key::Named(Named::ArrowDown) => Some(Message::MoveDown),
-                    Key::Named(Named::Enter) if !modifiers.alt() => Some(Message::KeyEnter),
-                    Key::Named(Named::Escape) => Some(Message::KeyEscape),
-                    Key::Character(ref c) if modifiers.control() && c.as_str() == "e" => {
-                        Some(Message::ToggleEditor)
-                    }
-                    Key::Character(ref c) if modifiers.control() && c.as_str() == "n" => {
-                        Some(Message::EditorNew)
-                    }
-                    _ => None,
-                },
-                _ => None,
+        let event_sub = iced::event::listen_with(|event, _status, _id| match event {
+            iced::Event::Window(window::Event::Unfocused) => Some(Message::WindowFocusLost),
+            iced::Event::Keyboard(KeyEvent::KeyPressed { key, modifiers, .. }) => {
+                Some(Message::KeyPressed { key, modifiers })
             }
+            _ => None,
         });
 
         Subscription::batch([hotkey_sub, event_sub])
     }
 
-    pub fn window_settings() -> window::Settings {
+    pub fn window_settings(entry_count: usize) -> window::Settings {
+        let m = Metrics::default();
+        let height = theme::panel_height(entry_count, 2);
+        let width = theme::window_width();
+
         let mut settings = window::Settings {
-            size: Size::new(500.0, 400.0),
-            position: window::Position::Centered,
+            size: Size::new(width, height),
+            position: window::Position::SpecificWith(|win, monitor| {
+                Point::new(
+                    (monitor.width - win.width) / 2.0,
+                    monitor.height * 0.30,
+                )
+            }),
             decorations: false,
-            resizable: false,
+            resizable: true,
+            transparent: true,
             level: window::Level::AlwaysOnTop,
+            min_size: Some(Size::new(width, theme::panel_height(0, 0))),
+            max_size: Some(Size::new(width, theme::editor_height().max(height))),
             ..Default::default()
         };
+
+        // Silence unused warning if Metrics fields change
+        let _ = m.panel_width;
 
         #[cfg(target_os = "windows")]
         {
@@ -885,7 +719,11 @@ impl App {
     }
 }
 
-fn hotkey_listener(config_menu_id: MenuId, restart_menu_id: MenuId, exit_menu_id: MenuId) -> impl iced::futures::Stream<Item = Message> {
+fn hotkey_listener(
+    config_menu_id: MenuId,
+    restart_menu_id: MenuId,
+    exit_menu_id: MenuId,
+) -> impl iced::futures::Stream<Item = Message> {
     iced::stream::channel(10, async move |mut sender| {
         use iced::futures::SinkExt;
         let hotkey_receiver = global_hotkey::GlobalHotKeyEvent::receiver();
@@ -909,4 +747,3 @@ fn hotkey_listener(config_menu_id: MenuId, restart_menu_id: MenuId, exit_menu_id
         }
     })
 }
-

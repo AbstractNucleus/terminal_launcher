@@ -4,10 +4,12 @@ mod app;
 mod config;
 mod fuzzy;
 mod theme;
+mod ui;
 
 use config::Config;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::GlobalHotKeyManager;
+use iced::Font;
 use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
@@ -86,7 +88,6 @@ fn main() -> iced::Result {
     let _hotkey_manager = hotkey_manager; // keep alive
 
     // --- Tray icon setup ---
-    // Create a 16x16 solid icon (highlight color from config, or a default blue)
     let icon = create_tray_icon_image(&config);
     let tray_menu = Menu::new();
     let config_item = MenuItem::new("Config", true, None);
@@ -108,18 +109,32 @@ fn main() -> iced::Result {
         .with_menu_on_left_click(false)
         .build()
         .expect("Failed to create tray icon");
-    // _tray_icon must stay alive for the icon to remain visible
 
     let config_menu_id = config_item.id().clone();
     let restart_menu_id = restart_item.id().clone();
     let exit_menu_id = exit_item.id().clone();
+    let entry_count = config.entry.len();
+
     iced::application(
-        move || app::App::new(config.clone(), first_run, config_menu_id.clone(), restart_menu_id.clone(), exit_menu_id.clone()),
+        move || {
+            app::App::new(
+                config.clone(),
+                first_run,
+                config_menu_id.clone(),
+                restart_menu_id.clone(),
+                exit_menu_id.clone(),
+            )
+        },
         app::App::update,
         app::App::view,
     )
     .title("Terminal Switcher")
-    .window(app::App::window_settings())
+    .font(include_bytes!("../assets/Inter-Regular.ttf").as_slice())
+    .font(include_bytes!("../assets/Inter-SemiBold.ttf").as_slice())
+    .font(include_bytes!("../assets/codicons.ttf").as_slice())
+    .default_font(Font::with_name("Inter"))
+    .transparent(true)
+    .window(app::App::window_settings(entry_count))
     .subscription(app::App::subscription)
     .run()
 }
@@ -151,4 +166,3 @@ fn create_tray_icon_image(config: &Config) -> Icon {
 
     Icon::from_rgba(rgba, w as u32, h as u32).expect("Failed to create tray icon image")
 }
-

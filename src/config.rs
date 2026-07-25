@@ -32,14 +32,14 @@ pub struct Settings {
     pub hotkey: HotkeyConfig,
 }
 
-fn default_background() -> String { "#1F1E1C".to_string() }
-fn default_foreground() -> String { "#FAF9F5".to_string() }
-fn default_highlight() -> String { "#D97757".to_string() }
-fn default_surface() -> String { "#262624".to_string() }
-fn default_muted() -> String { "#9C9A92".to_string() }
-fn default_accent() -> String { "#E08B6F".to_string() }
-fn default_border() -> String { "#30302E".to_string() }
-fn default_danger() -> String { "#EE8884".to_string() }
+pub fn default_background() -> String { "#141414".to_string() }
+pub fn default_foreground() -> String { "#D4D4D4".to_string() }
+pub fn default_highlight() -> String { "#2F2F2F".to_string() }
+pub fn default_surface() -> String { "#212121".to_string() }
+pub fn default_muted() -> String { "#858585".to_string() }
+pub fn default_accent() -> String { "#D9A05B".to_string() }
+pub fn default_border() -> String { "#333333".to_string() }
+pub fn default_danger() -> String { "#F14C4C".to_string() }
 fn default_font_size() -> u16 { 14 }
 
 impl Default for Settings {
@@ -109,6 +109,18 @@ impl Entry {
                 None => host.clone(),
             },
         }
+    }
+
+    /// Codicons codepoint for this entry kind (`folder` / `remote`).
+    pub fn icon(&self) -> char {
+        match self {
+            Entry::Directory { .. } => '\u{ea83}',
+            Entry::Ssh { .. } => '\u{eb3a}',
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        matches!(self, Entry::Directory { .. })
     }
 }
 
@@ -236,14 +248,14 @@ port = 2222
 [settings]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.settings.background, "#1F1E1C");
-        assert_eq!(config.settings.foreground, "#FAF9F5");
-        assert_eq!(config.settings.highlight, "#D97757");
-        assert_eq!(config.settings.surface, "#262624");
-        assert_eq!(config.settings.muted, "#9C9A92");
-        assert_eq!(config.settings.accent, "#E08B6F");
-        assert_eq!(config.settings.border, "#30302E");
-        assert_eq!(config.settings.danger, "#EE8884");
+        assert_eq!(config.settings.background, "#141414");
+        assert_eq!(config.settings.foreground, "#D4D4D4");
+        assert_eq!(config.settings.highlight, "#2F2F2F");
+        assert_eq!(config.settings.surface, "#212121");
+        assert_eq!(config.settings.muted, "#858585");
+        assert_eq!(config.settings.accent, "#D9A05B");
+        assert_eq!(config.settings.border, "#333333");
+        assert_eq!(config.settings.danger, "#F14C4C");
         assert_eq!(config.settings.font_size, 14);
         assert_eq!(config.settings.hotkey.modifier, "Alt");
         assert_eq!(config.settings.hotkey.key, "Space");
@@ -261,9 +273,9 @@ font_size = 14
 "##;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.settings.background, "#1e1e2e");
-        assert_eq!(config.settings.surface, "#262624");
-        assert_eq!(config.settings.muted, "#9C9A92");
-        assert_eq!(config.settings.danger, "#EE8884");
+        assert_eq!(config.settings.surface, "#212121");
+        assert_eq!(config.settings.muted, "#858585");
+        assert_eq!(config.settings.danger, "#F14C4C");
     }
 
     #[test]
@@ -365,5 +377,40 @@ host = "user@host.com"
     fn load_nonexistent_returns_error() {
         let result = Config::load_from(std::path::Path::new("/nonexistent/config.toml"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn readme_settings_sample_parses() {
+        let toml_str = r##"
+[settings]
+background  = "#141414"
+foreground  = "#D4D4D4"
+highlight   = "#2F2F2F"
+surface     = "#212121"
+muted       = "#858585"
+accent      = "#D9A05B"
+border      = "#333333"
+danger      = "#F14C4C"
+font_size   = 14
+
+[settings.hotkey]
+modifier = "Alt"
+key      = "Space"
+
+[[entry]]
+type = "directory"
+name = "My Project"
+path = "~/projects/myapp"
+
+[[entry]]
+type = "ssh"
+name = "Prod Box"
+host = "user@prod.example.com"
+port = 22
+"##;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.settings.background, "#141414");
+        assert_eq!(config.settings.accent, "#D9A05B");
+        assert_eq!(config.entry.len(), 2);
     }
 }
